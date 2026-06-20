@@ -78,24 +78,79 @@ bodies score and classify it. You'll see all of these in the columns:
 
 ## What's in each row
 
-One row per CVE, 19 columns. Everything is text (it's CSV), so cast scores to a
-number before you compare them. Multi-valued fields (several products, several
-CWEs) are packed into one cell separated by ` | `.
+One row per CVE, 19 columns. Everything is text (it's CSV), so cast scores and
+the KEV flag to numbers before you compare them. Multi-valued fields (several
+products, several CWEs) are packed into one cell separated by ` | `.
 
 | group | columns | what it tells you |
 |---|---|---|
 | **identity** | `cve_id`, `assigner_short_name` | which CVE, and who wrote it |
-| **timing** | `date_published`, `date_updated` | when it went public and when it last changed |
+| **timing** | `date_published`, `date_updated` | when it went public and when it last changed (ISO-8601 UTC, to the second) |
 | **description** | `title`, `description_en` | the human-readable summary of the flaw |
-| **how bad** | `cvss_version`, `cvss_base_score`, `cvss_vector`, `cvss_source` | the severity score and how it was reached |
+| **how bad** | `cvss_version`, `cvss_base_score`, `cvss_vector`, `cvss_source` | the severity score, the vector, and where the score came from |
 | **what kind** | `cwe_ids_all` | the weakness type(s), e.g. `CWE-787 \| CWE-125` |
-| **being exploited?** | `cisa_kev`, `kev_date_added`, `ssvc_exploitation`, `ssvc_automatable`, `ssvc_technical_impact` | is it on the KEV list, and CISA's prioritization signals |
+| **being exploited?** | `cisa_kev`, `kev_date_added`, `ssvc_exploitation`, `ssvc_automatable`, `ssvc_technical_impact` | is it on the KEV list (`1`/`0`), and CISA's SSVC triage (one-char codes) |
 | **what it affects** | `vendors`, `products`, `cpes` | affected vendor/product names, plus machine-matchable CPE 2.3 strings |
 
 A note on severity: there's no `cvss_base_severity` column because the word
 (LOW/MEDIUM/HIGH/CRITICAL) is just a band of the number — 0.1–3.9 is Low,
 4.0–6.9 Medium, 7.0–8.9 High, 9.0–10.0 Critical — so you derive it from
 `cvss_base_score`.
+
+## Reading the scoring and exploitation fields
+
+These three are where most of the prioritization signal lives, so they're worth
+understanding rather than skimming past.
+
+**`cvss_vector` — how the attack works, in shorthand.** A vector like
+`CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H` (that's Log4Shell) is a
+slash-separated list of the metrics that produced the score. The ones worth
+reading at a glance:
+
+- **AV — Attack Vector:** where the attacker has to be. `N`etwork (reachable over
+  the internet — the dangerous one), `A`djacent (same local network), `L`ocal
+  (needs local access), `P`hysical.
+- **AC — Attack Complexity:** `L`ow or `H`igh — how much has to line up for it
+  to work.
+- **PR — Privileges Required:** `N`one / `L`ow / `H`igh — does the attacker need
+  an account first.
+- **UI — User Interaction:** `N`one or `R`equired — does a victim have to click
+  something.
+- **C / I / A — impact** to Confidentiality, Integrity, Availability, each
+  `H`igh / `L`ow / `N`one.
+
+The thing to watch for is `AV:N/AC:L/PR:N/UI:N` with high C/I/A — remotely
+reachable, easy, no login, no click, total compromise. That combination is why
+Log4Shell is a 10.0. You don't have to decode it by hand: paste the whole vector
+into the
+[FIRST CVSS calculator](https://www.first.org/cvss/calculator/3.1) to see it
+expanded, and read the full
+[CVSS v3.1 spec](https://www.first.org/cvss/v3.1/specification-document) (or
+[v4.0](https://www.first.org/cvss/v4-0/), which adds more letters but works the
+same way) for what each metric means.
+
+**SSVC — CISA's "what should I do about it" triage.** Three decision points,
+compacted to one character each to save space:
+
+| column | values |
+|---|---|
+| `ssvc_exploitation` | `n` none · `p` proof-of-concept exists · `a` active in the wild |
+| `ssvc_automatable` | `y` yes · `n` no (can an attacker automate it at scale) |
+| `ssvc_technical_impact` | `p` partial · `t` total (how much control it gives) |
+
+Read together they tell you how hard to run: `a` + `y` + `t` (actively
+exploited, automatable, total impact) is a drop-everything bug. Background and
+the full decision tree are in
+[CISA's SSVC guide](https://www.cisa.gov/ssvc). (Empty means the record hasn't
+been triaged — most non-enriched CVEs.)
+
+**KEV — the authoritative "exploited in the wild" list.** `cisa_kev = 1` means
+the CVE is on
+[CISA's Known Exploited Vulnerabilities catalog](https://www.cisa.gov/known-exploited-vulnerabilities-catalog),
+and `kev_date_added` is when CISA added it. US federal civilian agencies are
+legally required to remediate KEV entries by a deadline, which is why it's the
+de-facto "patch this first, argue later" list for everyone. It's small (~1,600
+of the 340k) and high-signal — a good first filter.
 
 ## How to use it
 
@@ -110,7 +165,7 @@ directly and globs all three at once:
 -- Every actively-exploited, critical-severity CVE from 2024, newest first
 SELECT cve_id, cvss_base_score, products, description_en
 FROM 'data/shards/*.csv'
-WHERE cisa_kev = 'true'
+WHERE cisa_kev = '1'
   AND TRY_CAST(cvss_base_score AS DOUBLE) >= 9.0
   AND date_published >= '2024-01-01'
 ORDER BY date_published DESC;
@@ -127,15 +182,29 @@ kernel_uaf = df[df["cwe_ids_all"].str.contains("CWE-416", na=False)
                & df["vendors"].str.contains("Linux", na=False)]
 
 # things on CISA's KEV list, sorted by when they were added
-kev = df[df["cisa_kev"] == "true"].sort_values("kev_date_added")
+kev = df[df["cisa_kev"] == "1"].sort_values("kev_date_added")
 ```
 
 A few questions a junior analyst can answer in one line with this data: which
-CVEs are *known to be exploited* right now (`cisa_kev = 'true'`); what the most
+CVEs are *known to be exploited* right now (`cisa_kev = '1'`); what the most
 common weakness types are this year (group by `cwe_ids_all`); every vulnerability
 in a product you run (filter `products` or `cpes`); how a specific CVE was scored
-and by whom (`cvss_base_score` + `cvss_source`). For Excel, just open a shard —
-it's a normal CSV.
+and by whom (`cvss_base_score` + `cvss_source`). For Excel, see the next section.
+
+## Live data in Excel (Power Query)
+
+[`excel/merge-shards.pq`](excel/merge-shards.pq) is a Power Query (M) script that
+pulls the three shards straight from this repo and stacks them into one table you
+can refresh on demand. On Windows Excel:
+
+1. **Data → Get Data → From Other Sources → Blank Query**
+2. **Home → Advanced Editor**, clear it, and paste the contents of
+   `excel/merge-shards.pq`
+3. **Done → Close & Load** — you get a worksheet table of every CVE, with the
+   score, KEV flag, and dates already typed.
+4. **Data → Refresh All** any time to pull the latest daily build.
+
+(Mac Excel doesn't have Power Query — use the DuckDB or pandas snippets above.)
 
 ## How fresh it is, and how to see what changed
 
@@ -143,10 +212,10 @@ A GitHub Actions workflow runs every day at 07:00 UTC. Most days it only fetches
 the handful of records that changed upstream (it follows the CVE Program's own
 `deltaLog.json` change feed) and commits a small update; the daily diff in
 `data/changes/` tells you exactly which CVEs were added, updated, or removed. The
-KEV list is re-checked every run, so a CVE's `cisa_kev` flag flips the day CISA
-adds it, even if the vulnerability record itself didn't change. If the change
-feed ever rolls past where we left off, the build rebuilds the whole dataset from
-scratch automatically, so it's self-healing.
+KEV list is re-checked every run, so a CVE's `cisa_kev` flag flips from `0` to
+`1` the day CISA adds it, even if the vulnerability record itself didn't change.
+If the change feed ever rolls past where we left off, the build rebuilds the
+whole dataset from scratch automatically, so it's self-healing.
 
 ## What's deliberately left out — and where to get it
 
@@ -183,8 +252,10 @@ creeps toward the cap.
   removed from the dataset.
 - **A daily snapshot, not real-time.** Upstream updates roughly every 7 minutes;
   this refreshes once a day.
-- **English descriptions only**, and the `cpes`/multi-value lists are capped at
-  50 entries with a `…(+N)` marker so one record can't run away.
+- **Compact encodings:** `cisa_kev` is `1`/`0`, the SSVC fields are one-character
+  codes (see the legend above), dates are trimmed to whole seconds, and the
+  `cpes`/multi-value lists are capped at 50 entries with a `…(+N)` marker.
+- **English descriptions only.**
 - **Not a replacement for NVD's full CPE configurations.** If you're doing
   serious automated asset matching with complex version ranges, treat `cpes`
   here as a starting filter and confirm against [NVD](https://nvd.nist.gov).
