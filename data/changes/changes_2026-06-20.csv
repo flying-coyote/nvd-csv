@@ -1,1 +1,4 @@
 cve_id,change_type,date_updated,shard,run_utc
+CVE-2026-11911,added,,cve_2026_to_now,2026-06-20T10:07:38+00:00
+CVE-2026-11912,added,,cve_2026_to_now,2026-06-20T10:07:38+00:00
+CVE-2026-12119,added,,cve_2026_to_now,2026-06-20T10:07:38+00:00
