@@ -1,22 +1,68 @@
-# nvd-csv — a daily, sharded CSV of every published CVE
+# nvd-csv — every published CVE as a CSV you can actually open
 
-This repo is both the code and the dataset. A GitHub Actions workflow runs once
-a day, pulls the latest data from the official
-[CVEProject/cvelistV5](https://github.com/CVEProject/cvelistV5) repository, and
-commits a refreshed set of CSV shards back here — one row per **PUBLISHED** CVE,
-all years.
+Every publicly known software vulnerability gets a **CVE** ID (Common
+Vulnerabilities and Exposures, the industry's universal name for a specific
+flaw, like `CVE-2021-44228` for Log4Shell). The official record for each one is
+published as JSON, and there are roughly **340,000** of them. This repo turns
+that pile into a handful of plain CSV files — one row per CVE — and refreshes
+them every day so you can open the whole history of disclosed vulnerabilities in
+Excel, pandas, or DuckDB without writing a single API call.
 
-Daily updates are incremental, driven by the upstream `cves/deltaLog.json`, and
-fall back to a full rebuild automatically when the incremental window can't be
-trusted (see [Incremental logic](#incremental-logic-and-the-staleness-guard)).
+If you're learning vulnerability management or detection engineering, this is
+meant to be a low-friction place to start poking at real data.
 
-- **Data lives in** [`data/shards/`](data/shards) — three age-band files
-  (`cve_2021_and_before.csv`, `cve_2022_to_2024.csv`, `cve_2025_and_after.csv`).
-- **Run state** is [`data/state.json`](data/state.json); per-run change logs are
-  in [`data/changes/`](data/changes).
-- **Scope:** PUBLISHED only. REJECTED and RESERVED records are excluded, and a
-  CVE that transitions out of PUBLISHED is deleted from its shard and logged as
-  a removal.
+## Why this exists
+
+The authoritative vulnerability data is free, but it's awkward to get at if you
+just want to look around:
+
+- The CVE Program publishes every record as an individual JSON file in one giant
+  git repository, [CVEProject/cvelistV5](https://github.com/CVEProject/cvelistV5).
+  Cloning it is several gigabytes and ~360,000 files, and each file follows the
+  nested [CVE JSON 5.x schema](https://github.com/CVEProject/cve-schema) where
+  the interesting fields (severity, weakness, affected products) live in
+  different places depending on who filled them in.
+- The [National Vulnerability Database (NVD)](https://nvd.nist.gov) — NIST's
+  enriched view of the same CVEs — has a JSON API, but it's rate-limited, it
+  paginates, and it sometimes lags behind the source.
+
+So a simple question like *"show me every actively-exploited CVE with a critical
+CVSS score that was published in 2024"* normally means cloning gigabytes,
+learning the JSON shape, reconciling two different data publishers inside each
+record, de-duplicating, and only then filtering. This repo does that work once a
+day and hands you the answer-ready table instead. No API key, no rate limits, no
+JSON parsing — just `read_csv`.
+
+## The vocabulary (what the columns are talking about)
+
+A CVE record is assembled by a few different organizations, and a few standards
+bodies score and classify it. You'll see all of these in the columns:
+
+- **CNA — CVE Numbering Authority.** The organization that assigned the ID and
+  wrote the base record (a vendor like Microsoft, a project like the Linux
+  kernel, or a coordinator like MITRE). It's in `assigner_short_name`.
+- **CVSS — [Common Vulnerability Scoring System](https://www.first.org/cvss/).**
+  A 0.0–10.0 severity score plus a "vector" string describing how the attack
+  works. Columns `cvss_version`, `cvss_base_score`, `cvss_vector`.
+- **CWE — [Common Weakness Enumeration](https://cwe.mitre.org).** The *type* of
+  flaw, as a catalog ID — e.g. `CWE-79` is cross-site scripting, `CWE-416` is a
+  use-after-free. Column `cwe_ids_all`. Look any ID up at
+  [cwe.mitre.org](https://cwe.mitre.org).
+- **CPE — [Common Platform Enumeration](https://nvd.nist.gov/products/cpe).** A
+  structured identifier for an affected product and version, like
+  `cpe:2.3:o:linux:linux_kernel:6.1:*:*:*:*:*:*:*`. It's what scanners and asset
+  inventories match against. Column `cpes`.
+- **KEV — [CISA's Known Exploited Vulnerabilities catalog](https://www.cisa.gov/known-exploited-vulnerabilities-catalog).**
+  The short list of CVEs that are known to be exploited in the wild — in other
+  words, the "patch these first" list. Columns `cisa_kev`, `kev_date_added`.
+- **SSVC — [Stakeholder-Specific Vulnerability Categorization](https://www.cisa.gov/ssvc).**
+  CISA's prioritization signals: is it being exploited, can it be automated, how
+  bad is the impact. Columns `ssvc_exploitation`, `ssvc_automatable`,
+  `ssvc_technical_impact`.
+- **ADP / Vulnrichment.** Many records arrive from the CNA without a score or a
+  CPE, so CISA's [Vulnrichment](https://github.com/cisagov/vulnrichment) program
+  back-fills the CVSS, CWE, CPE, and SSVC. Where a value came from the CNA versus
+  this enrichment is recorded in `cvss_source` (`cna` or `cisa-adp`).
 
 ## Dataset statistics
 
@@ -30,171 +76,130 @@ trusted (see [Incremental logic](#incremental-logic-and-the-staleness-guard)).
 | `cve_2025_and_after` | 69,348 | 48.74 MB | 2025–2026 |
 <!-- STATS:END -->
 
-## Schema
+## What's in each row
 
-Exactly one row per CVE, 19 columns, in this order. Multi-valued fields are
-flattened into one cell with ` | ` as the delimiter, de-duplicated and
-order-stable; all internal newlines and tabs are collapsed to single spaces.
-Files are UTF-8, `QUOTE_MINIMAL`, with `\n` line endings.
+One row per CVE, 19 columns. Everything is text (it's CSV), so cast scores to a
+number before you compare them. Multi-valued fields (several products, several
+CWEs) are packed into one cell separated by ` | `.
 
-| # | column | meaning |
-|---:|---|---|
-| 1 | `cve_id` | the CVE ID (year and bucket are derivable from it) |
-| 2 | `assigner_short_name` | assigning CNA short name |
-| 3 | `date_published` | ISO-8601, as provided |
-| 4 | `date_updated` | ISO-8601, as provided |
-| 5 | `title` | CNA title if present, else empty |
-| 6 | `description_en` | English descriptions (lang starts with `en`), concatenated, whitespace collapsed |
-| 7 | `cvss_version` | e.g. `3.1` |
-| 8 | `cvss_base_score` | numeric, as stored (the qualitative severity band is derivable from this) |
-| 9 | `cvss_vector` | CVSS vector string |
-| 10 | `cvss_source` | `cna` or `cisa-adp` (which container the score came from) |
-| 11 | `cwe_ids_all` | every distinct `CWE-####` found in any container, `|`-joined |
-| 12 | `cisa_kev` | `true`/`false` — from the CISA KEV catalog, matched by CVE ID |
-| 13 | `kev_date_added` | KEV `dateAdded` when listed |
-| 14 | `ssvc_exploitation` | CISA-ADP SSVC `Exploitation` |
-| 15 | `ssvc_automatable` | CISA-ADP SSVC `Automatable` |
-| 16 | `ssvc_technical_impact` | CISA-ADP SSVC `Technical Impact` |
-| 17 | `vendors` | distinct vendors from the CNA `affected[]`, `|`-joined |
-| 18 | `products` | distinct products from the CNA `affected[]`, `|`-joined |
-| 19 | `cpes` | distinct CPE 2.3 criteria (from `affected[].cpes` and `cpeApplicability`), capped at 50 with a trailing `…(+N)` |
+| group | columns | what it tells you |
+|---|---|---|
+| **identity** | `cve_id`, `assigner_short_name` | which CVE, and who wrote it |
+| **timing** | `date_published`, `date_updated` | when it went public and when it last changed |
+| **description** | `title`, `description_en` | the human-readable summary of the flaw |
+| **how bad** | `cvss_version`, `cvss_base_score`, `cvss_vector`, `cvss_source` | the severity score and how it was reached |
+| **what kind** | `cwe_ids_all` | the weakness type(s), e.g. `CWE-787 \| CWE-125` |
+| **being exploited?** | `cisa_kev`, `kev_date_added`, `ssvc_exploitation`, `ssvc_automatable`, `ssvc_technical_impact` | is it on the KEV list, and CISA's prioritization signals |
+| **what it affects** | `vendors`, `products`, `cpes` | affected vendor/product names, plus machine-matchable CPE 2.3 strings |
 
-### CVSS precedence and CWE aggregation
+A note on severity: there's no `cvss_base_severity` column because the word
+(LOW/MEDIUM/HIGH/CRITICAL) is just a band of the number — 0.1–3.9 is Low,
+4.0–6.9 Medium, 7.0–8.9 High, 9.0–10.0 Critical — so you derive it from
+`cvss_base_score`.
 
-For CVSS: prefer the CNA container; only if the CNA has none, fall back to
-CISA-ADP. Within the chosen container, take the highest version
-(`v4.0 > v3.1 > v3.0 > v2.0`); `cvss_source` records which container won. A
-record may carry no CVSS at all (common for Linux-kernel CVEs); those fields are
-left empty rather than invented. In practice CISA-ADP only backfills a CVSS when
-the CNA omitted one, so the two rarely conflict. `cwe_ids_all` collects every
-distinct CWE id found in any container (CNA + ADP).
+## How to use it
 
-### KEV is authoritative from the CISA feed
+Clone the repo (or download the three CSVs) and point any tool at
+`data/shards/*.csv`. They share the same columns, so reading all three together
+gives you the full dataset.
 
-`cisa_kev` / `kev_date_added` come from CISA's
-[Known Exploited Vulnerabilities catalog](https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json),
-fetched once per run and matched by CVE ID — more reliable than scraping KEV out
-of the ADP container. Because KEV is fetched every run, a CVE's KEV status stays
-current even on a day its own record didn't change.
+**[DuckDB](https://duckdb.org)** is the easiest because it reads the CSVs
+directly and globs all three at once:
 
-### Schema design decisions
-
-The schema is intentionally lean: a column earns its place only if it isn't
-constant, isn't derivable from another column, and carries analyst value worth
-its bytes. What was dropped, and why:
-
-- `state` — always `PUBLISHED` given the scope (zero information).
-- `year`, `source_path` — fully derivable from `cve_id`.
-- `assigner_org_id` — a 36-char UUID that duplicates `assigner_short_name`.
-- `data_version`, `has_cisa_adp`, `record_dateUpdated_hash` — schema/plumbing
-  metadata, not analyst-facing.
-- `date_reserved` — the static date a CNA reserved the ID; no analytic value.
-- `cvss_base_severity` — derivable from `cvss_base_score` (standard CVSS bands).
-- `cwe_id`, `cwe_name` — derivable from `cwe_ids_all` (the first id) plus a
-  CWE-id→name lookup; `cwe_source` is barely useful and usually tracks
-  `cvss_source`.
-- `kev_known_ransomware`, `affected_count`, `reference_count` — marginal value;
-  dropped for leanness (each was a tiny fraction of the bytes anyway).
-- `reference_urls` — the single fattest, lowest-value column (up to 50 links in
-  one cell); `cve_id` reconstructs the link to the full record.
-
-`cpes` was **kept** after measuring it: at ~5% of the dataset it's the only
-machine-matchable identifier (CPE 2.3, with versions) for correlating CVEs
-against asset inventories, scanners, or NVD configurations. It is *not*
-derivable from the other columns — only 14% of CVEs carry a CPE, 45% have a
-vendor/product but no CPE, and the CPE vendor equals the assigner only ~55% of
-the time — so it adds coverage rather than duplicating `vendors`/`products`.
-
-Never stored at all: per-version ranges, git commit hashes, and `programFiles`
-(Linux-kernel CVEs carry dozens of version ranges and enumerating them would
-explode the row). Only English descriptions are kept; full kernel descriptions
-(which embed stack traces) drive file size, so `--max-desc-chars` can truncate.
-
-## Sharding strategy
-
-Shards are coarse age bands — a small, fixed set of multi-year files — to keep
-the shard count low. The default `--band-uppers 2021,2024` produces three:
-
-| shard | years |
-| --- | --- |
-| `cve_2021_and_before.csv` | ≤ 2021 |
-| `cve_2022_to_2024.csv` | 2022–2024 |
-| `cve_2025_and_after.csv` | ≥ 2025 |
-
-Each is sized to sit under GitHub's 100 MB per-file limit with headroom (~50–72
-MB today). The trade for so few shards is larger files: a daily delta re-writes
-a whole band even for a handful of changed rows — but git delta-compresses the
-mostly-unchanged text, so repo history still grows slowly. Shards are written
-with rows sorted by `(year, sequence)`, so the same set of rows always produces
-identical bytes (the backbone of the idempotency guarantee).
-
-There is no auto-split. Every run records each shard's row count and byte size
-into `state.json` and the stats block above, and **warns loudly** if any shard
-exceeds `--shard-max-bytes` (default 90 MB). The recent band fills over roughly
-two years; when it approaches the cap, **lower a `--band-uppers` boundary** to
-peel the oldest years into their own shard (the boundaries are the one tuning
-knob, changeable on any run).
-
-## Incremental logic and the staleness guard
-
-State persists in `data/state.json` (`last_processed_fetchTime` = the newest
-deltaLog `fetchTime` already incorporated). Each run:
-
-1. **Decide mode.** Fetch `cves/deltaLog.json`, read the *actual* oldest and
-   newest `fetchTime` present (the upstream retention is size-capped and has been
-   cut from ~30 to ~15 days during high-volume periods, so the window is never
-   assumed). Go **FULL** when state/shards are missing, when the cursor is null,
-   or when the cursor is older than the oldest `fetchTime` (the window rolled past
-   us → possible gap). Otherwise **DELTA**. `--mode auto|full|delta` overrides.
-2. **DELTA:** union every `new[]`+`updated[]` entry newer than the cursor, fetch
-   just those raw records concurrently (≤12 workers, retry + backoff), upsert by
-   `cve_id` into the right band shard, delete any that are no longer PUBLISHED,
-   refresh KEV-only changes onto existing rows, then advance the cursor.
-3. **FULL:** acquire the whole dataset (shallow `git clone --depth 1`), rebuild
-   every shard from scratch (accumulating per band, flushing at band boundaries
-   to bound memory), then advance the cursor.
-4. Write outputs, update `state.json`, write the daily change log, regenerate the
-   stats block, and (in CI) commit only if something changed.
-
-**Idempotency:** upserts are keyed solely on `cve_id`, and shard bytes are
-deterministic, so re-running a delta changes nothing. (A schema or band change
-needs a `--mode full` run, since a delta can't reshape existing shards.)
-
-## Repo layout
-
-```
-src/        build.py (CLI/orchestration) · parse.py (record→row) · shards.py
-            (band naming/IO) · sources.py (deltaLog/raw/KEV/clone) · state.py
-tests/      fixtures/ (real + synthetic CVE records) · test_parse · test_shards · test_build
-data/       shards/ · changes/ · state.json · kev_snapshot.json  (generated, committed)
-.github/workflows/daily-update.yml
+```sql
+-- Every actively-exploited, critical-severity CVE from 2024, newest first
+SELECT cve_id, cvss_base_score, products, description_en
+FROM 'data/shards/*.csv'
+WHERE cisa_kev = 'true'
+  AND TRY_CAST(cvss_base_score AS DOUBLE) >= 9.0
+  AND date_published >= '2024-01-01'
+ORDER BY date_published DESC;
 ```
 
-## Run it locally
+**pandas:**
+
+```python
+import glob, pandas as pd
+df = pd.concat(pd.read_csv(f, dtype=str) for f in glob.glob("data/shards/*.csv"))
+
+# all use-after-free bugs (CWE-416) in the Linux kernel
+kernel_uaf = df[df["cwe_ids_all"].str.contains("CWE-416", na=False)
+               & df["vendors"].str.contains("Linux", na=False)]
+
+# things on CISA's KEV list, sorted by when they were added
+kev = df[df["cisa_kev"] == "true"].sort_values("kev_date_added")
+```
+
+A few questions a junior analyst can answer in one line with this data: which
+CVEs are *known to be exploited* right now (`cisa_kev = 'true'`); what the most
+common weakness types are this year (group by `cwe_ids_all`); every vulnerability
+in a product you run (filter `products` or `cpes`); how a specific CVE was scored
+and by whom (`cvss_base_score` + `cvss_source`). For Excel, just open a shard —
+it's a normal CSV.
+
+## How fresh it is, and how to see what changed
+
+A GitHub Actions workflow runs every day at 07:00 UTC. Most days it only fetches
+the handful of records that changed upstream (it follows the CVE Program's own
+`deltaLog.json` change feed) and commits a small update; the daily diff in
+`data/changes/` tells you exactly which CVEs were added, updated, or removed. The
+KEV list is re-checked every run, so a CVE's `cisa_kev` flag flips the day CISA
+adds it, even if the vulnerability record itself didn't change. If the change
+feed ever rolls past where we left off, the build rebuilds the whole dataset from
+scratch automatically, so it's self-healing.
+
+## What's deliberately left out — and where to get it
+
+To keep the files small and readable, the schema is trimmed to what's useful at a
+glance. If you need more, the full record is always one click away at
+`https://www.cve.org/CVERecord?id=<CVE-ID>` or in the
+[cvelistV5](https://github.com/CVEProject/cvelistV5) JSON.
+
+- **Reference links** aren't a column — a record can have 50 advisory/patch/PoC
+  URLs, which doesn't belong in a CSV cell. Go to the CVE record for those.
+- **Per-version ranges and git commit hashes** aren't kept — kernel CVEs alone
+  can list dozens, and they'd swamp the row. `cpes` carries version info where
+  it's available.
+- **Several fields are dropped because they're derivable or redundant:** the
+  CVSS severity word (from the score), the CWE *name* (look the `CWE-####` up at
+  [cwe.mitre.org](https://cwe.mitre.org)), the year (from the `cve_id`), and a
+  few plumbing fields. `cpes` was *kept* on purpose: it's the only
+  machine-matchable product identifier, and only ~14% of CVEs carry one, so it
+  can't be reconstructed from `vendors`/`products`.
+
+## How the files are organized
+
+The data is split into three CSVs by age (`cve_2021_and_before`,
+`cve_2022_to_2024`, `cve_2025_and_after`) only because GitHub caps a single file
+at 100 MB and the full dataset is ~180 MB. There's nothing clever to it — read
+all three and you have everything. The split points are tunable
+(`--band-uppers`) if you rebuild it yourself, and the build warns if any file
+creeps toward the cap.
+
+## Caveats — what this is and isn't
+
+- **PUBLISHED records only.** CVEs that are RESERVED (an ID exists but no details
+  yet) or REJECTED (withdrawn) aren't here. A CVE that gets rejected later is
+  removed from the dataset.
+- **A daily snapshot, not real-time.** Upstream updates roughly every 7 minutes;
+  this refreshes once a day.
+- **English descriptions only**, and the `cpes`/multi-value lists are capped at
+  50 entries with a `…(+N)` marker so one record can't run away.
+- **Not a replacement for NVD's full CPE configurations.** If you're doing
+  serious automated asset matching with complex version ranges, treat `cpes`
+  here as a starting filter and confirm against [NVD](https://nvd.nist.gov).
+- This is an independent project that re-packages public CVE data; it isn't
+  affiliated with MITRE, NIST/NVD, or CISA.
+
+## Run or rebuild it yourself
 
 ```bash
-pip install -r requirements.txt          # runtime: requests only
-# dry run on a subset (clones upstream, builds a sample, commits nothing):
-python -m src.build --mode full --limit 2000 --no-commit
-
-# real full build into a scratch dir (does not touch the committed data/):
-python -m src.build --mode full --data-dir /tmp/full-data --readme /tmp/r.md
-
-# re-tune the bands (e.g. four shards):
-python -m src.build --mode full --band-uppers 2018,2021,2024 --data-dir /tmp/d
-
-# tests (dev deps add pytest + pandas for the CSV round-trip parity check):
-pip install -r requirements-dev.txt && python -m pytest -q
+pip install -r requirements.txt          # runtime needs only: requests
+python -m src.build --mode full --limit 2000 --no-commit   # quick dry run
+pip install -r requirements-dev.txt && python -m pytest -q # the test suite
 ```
 
-`build.py` never runs git — committing is the workflow's job, so a local run only
-writes files. `--no-commit` is accepted so the documented dry run works verbatim.
-A full build of the current dataset is ~342k rows and runs in about a minute.
-
-## First full build
-
-The very first run must be a **full** build and produces a large initial commit.
-Trigger it manually: go to **Actions → Daily CVE refresh → Run workflow** and pick
-`mode = full`. After that the daily 07:00 UTC schedule keeps it current with small
-incremental commits, rebuilding fully on its own only if the deltaLog window ever
-rolls past the saved cursor.
+The daily refresh is `.github/workflows/daily-update.yml`. To force a full
+rebuild from scratch: **Actions → Daily CVE refresh → Run workflow → mode =
+full**. The build uses only the Python standard library plus `requests`; pandas
+is only needed for the tests.
