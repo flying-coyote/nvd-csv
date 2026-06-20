@@ -21,20 +21,13 @@ trusted (see [Incremental logic](#incremental-logic-and-the-staleness-guard)).
 ## Dataset statistics
 
 <!-- STATS:START -->
-**Total rows:** 341,899  ·  **Shards:** 10  ·  generated 2026-06-20T02:07:48+00:00
+**Total rows:** 341,899  ·  **Shards:** 3  ·  generated 2026-06-20T02:33:49+00:00
 
 | shard | rows | size | years |
 | --- | ---: | ---: | :---: |
-| `cve_2018` | 16,188 | 6.67 MB | 2018 |
-| `cve_2019` | 16,092 | 7.25 MB | 2019 |
-| `cve_2020` | 19,381 | 9.04 MB | 2020 |
-| `cve_2021` | 22,584 | 11.53 MB | 2021 |
-| `cve_2022` | 26,421 | 14.21 MB | 2022 |
-| `cve_2023` | 30,590 | 17.14 MB | 2023 |
-| `cve_2024` | 38,380 | 24.19 MB | 2024 |
-| `cve_2025` | 43,010 | 27.35 MB | 2025 |
-| `cve_2026` | 26,338 | 18.83 MB | 2026 |
-| `cve_archive_le2017` | 102,915 | 35.80 MB | 1999–2017 |
+| `cve_2021_and_before` | 177,160 | 71.95 MB | 1999–2021 |
+| `cve_2022_to_2024` | 95,391 | 60.84 MB | 2022–2024 |
+| `cve_2025_and_after` | 69,348 | 48.74 MB | 2025–2026 |
 <!-- STATS:END -->
 
 ## Schema
