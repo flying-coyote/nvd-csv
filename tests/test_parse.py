@@ -119,11 +119,11 @@ def test_ssvc_empty_without_cisa_adp():
 
 
 def test_kev_populated_from_index_and_matched_by_id():
-    kev = {"CVE-2099-10001": {"dateAdded": "2099-02-15",
+    kev = {"CVE-2099-10001": {"dateAdded": "2099-02-15T01:02:03Z",
                               "knownRansomwareCampaignUse": "Unknown"}}
     r = row("synthetic-precedence.json", kev_index=kev)
     assert r["cisa_kev"] == "1"
-    assert r["kev_date_added"] == "2099-02-15"
+    assert r["kev_date_added"] == "2099-02-15"   # date-only even if KEV gives a time
 
 
 def test_kev_absent_when_not_in_index():
@@ -133,11 +133,11 @@ def test_kev_absent_when_not_in_index():
     assert row("synthetic-precedence.json")["cisa_kev"] == "0"  # no index at all
 
 
-def test_dates_trimmed_to_whole_seconds():
+def test_dates_reduced_to_calendar_date():
     r = row("CVE-2024-1086.json")
-    assert r["date_published"] == "2024-01-31T12:14:34Z"   # was ...34.073Z
-    assert r["date_updated"] == "2025-10-21T23:05:25Z"     # was ...25.720Z
-    assert "." not in r["date_published"]
+    assert r["date_published"] == "2024-01-31"   # was 2024-01-31T12:14:34.073Z
+    assert r["date_updated"] == "2025-10-21"     # was 2025-10-21T23:05:25.720Z
+    assert "T" not in r["date_published"]
 
 
 # ---------------------------------------------------------------------------
