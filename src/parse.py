@@ -1,17 +1,15 @@
 """CVE JSON 5.x record -> single flat row dict.
 
-All of the schema logic lives here: column order, the CNA-first CVSS/CWE
-precedence, x_transferred reference de-duplication, SSVC extraction, KEV join,
-and cell hygiene (newline/tab collapse, " | " flattening, list caps).
+All of the schema logic lives here: column order, the CNA-first CVSS precedence,
+SSVC extraction, KEV join, CWE-id aggregation, and cell hygiene (newline/tab
+collapse, " | " flattening).
 
 Standard library only. No I/O — callers hand in a parsed dict and (optionally)
 a KEV index; the row that comes back is all strings, ready for csv.DictWriter.
 
-Schema note: the column set was trimmed from the original 35 to 27 to save
-space — dropped columns (state, year, assigner_org_id, data_version,
-has_cisa_adp, source_path, record_dateUpdated_hash, reference_urls) were either
-constant, derivable from cve_id, or low-value-per-byte. The derivation helpers
-(year_of/bucket_of/source_path_for) stay because sharding still uses them.
+Schema note: trimmed to 18 columns. The derivation helpers
+(year_of/bucket_of/source_path_for) stay because sharding still uses them even
+though they are no longer output columns.
 """
 
 from __future__ import annotations
@@ -25,26 +23,22 @@ COLUMNS = [
     # identity
     "cve_id", "assigner_short_name",
     # dates
-    "date_reserved", "date_published", "date_updated",
+    "date_published", "date_updated",
     # text
     "title", "description_en",
-    # severity (single best value + source)
-    "cvss_version", "cvss_base_score", "cvss_base_severity", "cvss_vector",
-    "cvss_source",
-    # weakness (single best value + source, plus all-IDs aggregate)
-    "cwe_id", "cwe_name", "cwe_source", "cwe_ids_all",
+    # severity (single best value + source; severity string derivable from score)
+    "cvss_version", "cvss_base_score", "cvss_vector", "cvss_source",
+    # weakness (all distinct CWE ids)
+    "cwe_ids_all",
     # CISA enrichment (ADP-only signals)
-    "cisa_kev", "kev_date_added", "kev_known_ransomware",
+    "cisa_kev", "kev_date_added",
     "ssvc_exploitation", "ssvc_automatable", "ssvc_technical_impact",
     # affected
-    "vendors", "products", "affected_count", "cpes",
-    # references
-    "reference_count",
+    "vendors", "products",
 ]
 
 LIST_DELIM = " | "
-LIST_CAP = 50          # cap for cpes
-OVERFLOW = "…"    # the … used in "…(+N)" markers and --max-desc truncation
+OVERFLOW = "…"    # the … appended on --max-desc truncation
 
 # CVSS metric keys mapped to (canonical version string, comparable rank).
 # Highest rank wins "highest version within container": v4.0 > v3.1 > v3.0 > v2.0.
@@ -74,21 +68,14 @@ def _num(value) -> str:
     return "" if value is None else str(value)
 
 
-def _flatten(values, cap: int | None = None) -> str:
-    """De-dup order-stable, clean each cell, join with ' | '.
-
-    With ``cap`` set, keep the first ``cap`` distinct values and append a
-    ``…(+N)`` element for the remainder.
-    """
+def _flatten(values) -> str:
+    """De-dup order-stable, clean each cell, join with ' | '."""
     distinct, seen = [], set()
     for v in values:
         v = _clean(v)
         if v and v not in seen:
             seen.add(v)
             distinct.append(v)
-    if cap is not None and len(distinct) > cap:
-        n = len(distinct) - cap
-        return LIST_DELIM.join(distinct[:cap] + [f"{OVERFLOW}(+{n})"])
     return LIST_DELIM.join(distinct)
 
 
@@ -124,30 +111,14 @@ def bucket_of(cve_id: str) -> str:
 
 
 def source_path_for(cve_id: str) -> str:
-    """Upstream path for a CVE — used by sharding; no longer an output column."""
+    """Upstream path for a CVE — used by sharding; not an output column."""
     return f"cves/{year_of(cve_id)}/{bucket_of(cve_id)}/{cve_id}.json"
 
 
 # ---------------------------------------------------------------------------
-# severity (CVSS)
+# severity (CVSS) — score/vector/source kept; the qualitative band is dropped
+# (it is derivable from the base score).
 # ---------------------------------------------------------------------------
-def derive_severity(score) -> str:
-    """CVSS v3.1 qualitative bands, used only when baseSeverity is absent."""
-    try:
-        s = float(score)
-    except (TypeError, ValueError):
-        return ""
-    if s <= 0:
-        return "NONE"
-    if s < 4.0:
-        return "LOW"
-    if s < 7.0:
-        return "MEDIUM"
-    if s < 9.0:
-        return "HIGH"
-    return "CRITICAL"
-
-
 def _best_cvss(container):
     """Highest-version CVSS within one container, or None."""
     if not isinstance(container, dict):
@@ -163,8 +134,6 @@ def _best_cvss(container):
                     best = (rank, {
                         "version": block.get("version") or vstr,
                         "score": block.get("baseScore"),
-                        "severity": (block.get("baseSeverity")
-                                     or derive_severity(block.get("baseScore"))),
                         "vector": block.get("vectorString") or "",
                     })
     return best[1] if best else None
@@ -177,22 +146,20 @@ def _cvss_fields(cna, cisa) -> dict:
         source = "cisa-adp"
     if chosen is None:
         return {k: "" for k in
-                ("cvss_version", "cvss_base_score", "cvss_base_severity",
-                 "cvss_vector", "cvss_source")}
+                ("cvss_version", "cvss_base_score", "cvss_vector", "cvss_source")}
     return {
         "cvss_version": _clean(chosen["version"]),
         "cvss_base_score": _num(chosen["score"]),
-        "cvss_base_severity": _clean(chosen["severity"]),
         "cvss_vector": _clean(chosen["vector"]),
         "cvss_source": source,
     }
 
 
 # ---------------------------------------------------------------------------
-# weakness (CWE)
+# weakness (all distinct CWE ids across every container)
 # ---------------------------------------------------------------------------
 def _cwes_in(container):
-    """[(cweId, description)] for valid CWE-\\d+ ids only, order preserved."""
+    """CWE-\\d+ ids found in a container, order preserved."""
     if not isinstance(container, dict):
         return []
     out = []
@@ -204,37 +171,22 @@ def _cwes_in(container):
                 continue
             cid = _clean(desc.get("cweId"))
             if _CWE_RE.match(cid):
-                out.append((cid, _clean(desc.get("description"))))
+                out.append(cid)
     return out
 
 
 def _cwe_fields(cna, adp_list) -> dict:
-    cna_cwes = _cwes_in(cna)
-    primary, source = None, ""
-    if cna_cwes:
-        primary, source = cna_cwes[0], "cna"
-    else:
-        for adp in adp_list:
-            adp_cwes = _cwes_in(adp)
-            if adp_cwes:
-                primary, source = adp_cwes[0], "cisa-adp"
-                break
     all_ids, seen = [], set()
-    for cid, _name in cna_cwes:
+    for cid in _cwes_in(cna):
         if cid not in seen:
             seen.add(cid)
             all_ids.append(cid)
     for adp in adp_list:
-        for cid, _name in _cwes_in(adp):
+        for cid in _cwes_in(adp):
             if cid not in seen:
                 seen.add(cid)
                 all_ids.append(cid)
-    return {
-        "cwe_id": primary[0] if primary else "",
-        "cwe_name": primary[1] if primary else "",
-        "cwe_source": source,
-        "cwe_ids_all": LIST_DELIM.join(all_ids),
-    }
+    return {"cwe_ids_all": LIST_DELIM.join(all_ids)}
 
 
 # ---------------------------------------------------------------------------
@@ -263,12 +215,11 @@ def _ssvc_fields(cisa) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# affected / cpes / references
+# affected
 # ---------------------------------------------------------------------------
 def _affected_fields(cna) -> dict:
-    affected = cna.get("affected") or []
     vendors, products = [], []
-    for entry in affected:
+    for entry in (cna.get("affected") or []):
         if not isinstance(entry, dict):
             continue
         vendor = _clean(entry.get("vendor"))
@@ -277,59 +228,7 @@ def _affected_fields(cna) -> dict:
             vendors.append(vendor)
         if product and product.lower() != "n/a":
             products.append(product)
-    return {
-        "vendors": _flatten(vendors),
-        "products": _flatten(products),
-        "affected_count": str(len(affected)),
-    }
-
-
-def _cpe_values(cna, adp_list):
-    cpes = []
-    for container in [cna] + list(adp_list):
-        if not isinstance(container, dict):
-            continue
-        for entry in (container.get("affected") or []):
-            if isinstance(entry, dict):
-                cpes.extend(entry.get("cpes") or [])
-        for applic in (container.get("cpeApplicability") or []):
-            if not isinstance(applic, dict):
-                continue
-            for node in (applic.get("nodes") or []):
-                if not isinstance(node, dict):
-                    continue
-                for match in (node.get("cpeMatch") or []):
-                    if isinstance(match, dict) and match.get("criteria"):
-                        cpes.append(match["criteria"])
-    return cpes
-
-
-def _reference_count(cna, adp_list) -> dict:
-    """Distinct reference URLs across CNA + ADP, dropping x_transferred copies.
-
-    Only the count survives in the schema (the URL list itself was the single
-    largest low-value column); the dedup still runs so the count is honest.
-    """
-    seen = set()
-
-    def add(url):
-        url = _clean(url)
-        if url:
-            seen.add(url)
-
-    for ref in (cna.get("references") or []):
-        if isinstance(ref, dict):
-            add(ref.get("url"))
-    for adp in adp_list:
-        if not isinstance(adp, dict):
-            continue
-        for ref in (adp.get("references") or []):
-            if not isinstance(ref, dict):
-                continue
-            if "x_transferred" in (ref.get("tags") or []):
-                continue  # one-time CNA copy added by the CVE Program container
-            add(ref.get("url"))
-    return {"reference_count": str(len(seen))}
+    return {"vendors": _flatten(vendors), "products": _flatten(products)}
 
 
 # ---------------------------------------------------------------------------
@@ -353,18 +252,13 @@ def _description_en(cna, max_desc_chars: int) -> str:
 def _kev_fields(cve_id, kev_index) -> dict:
     entry = kev_index.get(cve_id) if kev_index else None
     if entry is None:
-        return {"cisa_kev": "false", "kev_date_added": "",
-                "kev_known_ransomware": ""}
-    return {
-        "cisa_kev": "true",
-        "kev_date_added": _clean(entry.get("dateAdded")),
-        "kev_known_ransomware": _clean(entry.get("knownRansomwareCampaignUse")),
-    }
+        return {"cisa_kev": "false", "kev_date_added": ""}
+    return {"cisa_kev": "true", "kev_date_added": _clean(entry.get("dateAdded"))}
 
 
 def kev_fields(cve_id, kev_index) -> dict:
-    """Public: the three KEV columns for one CVE. Used to refresh KEV-only
-    changes onto an existing row during a delta run without re-fetching it."""
+    """Public: the KEV columns for one CVE. Used to refresh KEV-only changes
+    onto an existing row during a delta run without re-fetching it."""
     return _kev_fields(cve_id, kev_index)
 
 
@@ -374,9 +268,8 @@ def kev_fields(cve_id, kev_index) -> dict:
 def record_to_row(record, kev_index=None, max_desc_chars: int = 0) -> dict:
     """Flatten one CVE JSON 5.x record into a {column: str} row.
 
-    ``kev_index`` maps cve_id -> {"dateAdded", "knownRansomwareCampaignUse"};
-    pass the parsed CISA KEV catalog. ``max_desc_chars`` of 0 means no
-    description truncation.
+    ``kev_index`` maps cve_id -> {"dateAdded", ...}; pass the parsed CISA KEV
+    catalog. ``max_desc_chars`` of 0 means no description truncation.
     """
     meta = record.get("cveMetadata") or {}
     cve_id = meta.get("cveId") or ""
@@ -390,7 +283,6 @@ def record_to_row(record, kev_index=None, max_desc_chars: int = 0) -> dict:
     row = {col: "" for col in COLUMNS}
     row["cve_id"] = cve_id
     row["assigner_short_name"] = _clean(meta.get("assignerShortName"))
-    row["date_reserved"] = _clean(meta.get("dateReserved"))
     row["date_published"] = _clean(meta.get("datePublished"))
     row["date_updated"] = _clean(meta.get("dateUpdated"))
     row["title"] = _clean(cna.get("title"))
@@ -400,6 +292,4 @@ def record_to_row(record, kev_index=None, max_desc_chars: int = 0) -> dict:
     row.update(_kev_fields(cve_id, kev_index))
     row.update(_ssvc_fields(cisa))
     row.update(_affected_fields(cna))
-    row["cpes"] = _flatten(_cpe_values(cna, adp_list), cap=LIST_CAP)
-    row.update(_reference_count(cna, adp_list))
     return row
