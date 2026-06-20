@@ -21,27 +21,20 @@ trusted (see [Incremental logic](#incremental-logic-and-the-staleness-guard)).
 ## Dataset statistics
 
 <!-- STATS:START -->
-_Snapshot from the initial validation build (2026-06-20, 27-column schema); the
-daily workflow regenerates this block on every run._
-
-**Total rows:** 341,897  ·  **Shards:** 10  ·  **Total size:** ~203 MB
+**Total rows:** 341,897  ·  **Shards:** 10  ·  generated 2026-06-20T01:41:52+00:00
 
 | shard | rows | size | years |
 | --- | ---: | ---: | :---: |
-| `cve_archive_le2017` | 102,915 | 41.38 MB | 1999–2017 |
-| `cve_2018` | 16,188 | 7.70 MB | 2018 |
-| `cve_2019` | 16,092 | 8.48 MB | 2019 |
-| `cve_2020` | 19,381 | 10.89 MB | 2020 |
-| `cve_2021` | 22,584 | 14.35 MB | 2021 |
-| `cve_2022` | 26,421 | 17.71 MB | 2022 |
-| `cve_2023` | 30,590 | 22.03 MB | 2023 |
-| `cve_2024` | 38,380 | 32.33 MB | 2024 |
-| `cve_2025` | 43,010 | 34.49 MB | 2025 |
-| `cve_2026` | 26,336 | 23.23 MB | 2026 (partial) |
-
-> The largest shard is 34 MB and the archive is 41 MB — comfortable headroom
-> under the 90 MB cap, so the 2017 cutoff is safe. Trimming the schema from 35 to
-> 27 columns cut the archive nearly in half (it was 80 MB at 35 columns).
+| `cve_2018` | 16,188 | 7.34 MB | 2018 |
+| `cve_2019` | 16,092 | 8.09 MB | 2019 |
+| `cve_2020` | 19,381 | 10.39 MB | 2020 |
+| `cve_2021` | 22,584 | 13.68 MB | 2021 |
+| `cve_2022` | 26,421 | 16.89 MB | 2022 |
+| `cve_2023` | 30,590 | 21.01 MB | 2023 |
+| `cve_2024` | 38,380 | 30.83 MB | 2024 |
+| `cve_2025` | 43,010 | 32.89 MB | 2025 |
+| `cve_2026` | 26,336 | 22.15 MB | 2026 |
+| `cve_archive_le2017` | 102,915 | 39.46 MB | 1999–2017 |
 <!-- STATS:END -->
 
 ## Schema

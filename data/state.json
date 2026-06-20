@@ -1,0 +1,71 @@
+{
+  "kev_catalog_date": "2026-06-18T16:00:20.1905Z",
+  "last_processed_fetchTime": "2026-06-20T00:28:52.843Z",
+  "last_run_utc": "2026-06-20T01:41:52+00:00",
+  "run_mode_last": "full",
+  "schema_version": 1,
+  "shards": {
+    "cve_2018": {
+      "bytes": 7698692,
+      "rows": 16188,
+      "year_max": 2018,
+      "year_min": 2018
+    },
+    "cve_2019": {
+      "bytes": 8480940,
+      "rows": 16092,
+      "year_max": 2019,
+      "year_min": 2019
+    },
+    "cve_2020": {
+      "bytes": 10893916,
+      "rows": 19381,
+      "year_max": 2020,
+      "year_min": 2020
+    },
+    "cve_2021": {
+      "bytes": 14349110,
+      "rows": 22584,
+      "year_max": 2021,
+      "year_min": 2021
+    },
+    "cve_2022": {
+      "bytes": 17713706,
+      "rows": 26421,
+      "year_max": 2022,
+      "year_min": 2022
+    },
+    "cve_2023": {
+      "bytes": 22031268,
+      "rows": 30590,
+      "year_max": 2023,
+      "year_min": 2023
+    },
+    "cve_2024": {
+      "bytes": 32330285,
+      "rows": 38380,
+      "year_max": 2024,
+      "year_min": 2024
+    },
+    "cve_2025": {
+      "bytes": 34487267,
+      "rows": 43010,
+      "year_max": 2025,
+      "year_min": 2025
+    },
+    "cve_2026": {
+      "bytes": 23226047,
+      "rows": 26336,
+      "year_max": 2026,
+      "year_min": 2026
+    },
+    "cve_archive_le2017": {
+      "bytes": 41375065,
+      "rows": 102915,
+      "year_max": 2017,
+      "year_min": 1999
+    }
+  },
+  "split_years": [],
+  "total_rows": 341897
+}
