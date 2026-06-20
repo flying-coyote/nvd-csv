@@ -1,0 +1,3 @@
+-r requirements.txt
+pytest>=8.0
+pandas>=2.0   # validation only (CSV round-trip parity), never imported by src/

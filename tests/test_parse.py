@@ -1,0 +1,311 @@
+"""Tests for src/parse.py — the record -> row builder.
+
+Real fixtures are frozen upstream snapshots (so their exact values are stable
+and safe to assert on); synthetic fixtures cover the cases that don't occur in
+real data (CVSS in both containers) or that need byte-exact known inputs
+(reference dedup, CSV hygiene).
+"""
+import csv
+import io
+import json
+import os
+
+import pytest
+
+from src import parse
+
+FIXDIR = os.path.join(os.path.dirname(__file__), "fixtures")
+
+
+def load(name):
+    with open(os.path.join(FIXDIR, name), encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def row(name, **kw):
+    return parse.record_to_row(load(name), **kw)
+
+
+# ---------------------------------------------------------------------------
+# schema shape
+# ---------------------------------------------------------------------------
+def test_columns_are_27_unique():
+    assert len(parse.COLUMNS) == 27
+    assert len(set(parse.COLUMNS)) == 27
+
+
+def test_row_has_exactly_the_columns_and_all_strings():
+    r = row("CVE-2024-1086.json")
+    assert list(r.keys()) == parse.COLUMNS
+    assert all(isinstance(v, str) for v in r.values())
+
+
+# ---------------------------------------------------------------------------
+# CVSS precedence
+# ---------------------------------------------------------------------------
+def test_cvss_cna_wins_over_adp_and_highest_version_in_container():
+    # synthetic: CNA has v3.1(5.0) AND v4.0(6.9); CISA-ADP has v3.1(9.9).
+    r = row("synthetic-precedence.json")
+    assert r["cvss_source"] == "cna"
+    assert r["cvss_version"] == "4.0"
+    assert r["cvss_base_score"] == "6.9"
+    assert r["cvss_base_severity"] == "MEDIUM"
+    assert r["cvss_vector"].startswith("CVSS:4.0/")
+
+
+def test_cvss_falls_back_to_cisa_adp_when_cna_has_none():
+    r = row("CVE-2021-44228.json")  # Log4Shell: CVSS only in CISA-ADP
+    assert r["cvss_source"] == "cisa-adp"
+    assert r["cvss_version"] == "3.1"
+    assert r["cvss_base_score"] == "10"          # stored as JSON int, preserved
+    assert r["cvss_base_severity"] == "CRITICAL"
+
+
+def test_cvss_from_cna_when_present():
+    r = row("CVE-2024-1086.json")
+    assert r["cvss_source"] == "cna"
+    assert r["cvss_base_score"] == "7.8"
+    assert r["cvss_base_severity"] == "HIGH"
+
+
+def test_cvss_empty_when_neither_container_has_it():
+    for name in ("CVE-2024-38595.json", "CVE-2025-40039.json"):
+        r = row(name)
+        assert r["cvss_version"] == ""
+        assert r["cvss_base_score"] == ""
+        assert r["cvss_base_severity"] == ""
+        assert r["cvss_vector"] == ""
+        assert r["cvss_source"] == ""
+
+
+@pytest.mark.parametrize("score,expected", [
+    (0, "NONE"), (0.0, "NONE"), (3.9, "LOW"), (4.0, "MEDIUM"), (6.9, "MEDIUM"),
+    (7.0, "HIGH"), (8.9, "HIGH"), (9.0, "CRITICAL"), (10, "CRITICAL"),
+    (None, ""), ("x", ""),
+])
+def test_derive_severity_bands(score, expected):
+    assert parse.derive_severity(score) == expected
+
+
+# ---------------------------------------------------------------------------
+# CWE precedence + aggregation
+# ---------------------------------------------------------------------------
+def test_cwe_cna_first_and_all_ids_aggregated():
+    r = row("synthetic-precedence.json")
+    assert r["cwe_id"] == "CWE-79"
+    assert r["cwe_source"] == "cna"
+    assert r["cwe_name"] == "CWE-79 Cross-site Scripting"
+    # CNA contributes 79, 89; CISA-ADP contributes 200 — order stable, deduped.
+    assert r["cwe_ids_all"] == "CWE-79 | CWE-89 | CWE-200"
+
+
+def test_cwe_real_log4shell_multiple_in_cna():
+    r = row("CVE-2021-44228.json")
+    assert r["cwe_id"] == "CWE-502"
+    assert r["cwe_source"] == "cna"
+    assert r["cwe_ids_all"] == "CWE-502 | CWE-400 | CWE-20"
+
+
+def test_cwe_excludes_null_and_noinfo_ids():
+    # Zerologon CNA has cweId:null (type Impact); CISA-ADP has "CWE-noinfo".
+    r = row("CVE-2020-1472.json")
+    assert r["cwe_id"] == ""
+    assert r["cwe_ids_all"] == ""
+    assert r["cwe_source"] == ""
+
+
+def test_cwe_single_real():
+    r = row("CVE-2024-1086.json")
+    assert r["cwe_id"] == "CWE-416"
+    assert r["cwe_ids_all"] == "CWE-416"
+
+
+# ---------------------------------------------------------------------------
+# SSVC + KEV
+# ---------------------------------------------------------------------------
+def test_ssvc_extracted_from_cisa_adp():
+    r = row("CVE-2024-38595.json")
+    assert (r["ssvc_exploitation"], r["ssvc_automatable"], r["ssvc_technical_impact"]) \
+        == ("none", "no", "partial")
+
+
+def test_ssvc_empty_without_cisa_adp():
+    r = row("CVE-2025-40039.json")
+    assert r["ssvc_exploitation"] == ""
+    assert r["ssvc_automatable"] == ""
+    assert r["ssvc_technical_impact"] == ""
+
+
+def test_kev_populated_from_index_and_matched_by_id():
+    kev = {"CVE-2099-10001": {"dateAdded": "2099-02-15",
+                              "knownRansomwareCampaignUse": "Unknown"}}
+    r = row("synthetic-precedence.json", kev_index=kev)
+    assert r["cisa_kev"] == "true"
+    assert r["kev_date_added"] == "2099-02-15"
+    assert r["kev_known_ransomware"] == "Unknown"
+
+
+def test_kev_absent_when_not_in_index():
+    r = row("synthetic-precedence.json", kev_index={"CVE-0000-0000": {}})
+    assert r["cisa_kev"] == "false"
+    assert r["kev_date_added"] == ""
+    assert r["kev_known_ransomware"] == ""
+
+    r2 = row("synthetic-precedence.json")  # no index at all
+    assert r2["cisa_kev"] == "false"
+
+
+# ---------------------------------------------------------------------------
+# references: x_transferred dedup + cap
+# ---------------------------------------------------------------------------
+def test_reference_dedup_drops_x_transferred_keeps_genuine_adp():
+    # CNA {a,b}; CVE-container x_transferred copies of a,b,c (all dropped, incl. the
+    # transfer-only c); CISA-ADP non-transferred {cisa-only} kept -> 3 distinct.
+    r = row("synthetic-precedence.json")
+    assert r["reference_count"] == "3"
+
+
+def test_reference_count_collapses_x_transferred_real():
+    raw = load("CVE-2021-44228.json")
+    cna = raw["containers"]["cna"]["references"]
+    adp_total = sum(len(a.get("references") or [])
+                    for a in raw["containers"]["adp"])
+    naive = len(cna) + adp_total          # 53 + 54 = 107 if nothing collapsed
+    r = row("CVE-2021-44228.json")
+    assert r["reference_count"] == "52"   # frozen distinct count
+    assert int(r["reference_count"]) < naive
+
+
+# ---------------------------------------------------------------------------
+# affected flattening
+# ---------------------------------------------------------------------------
+def test_multi_product_flattening_real():
+    r = row("CVE-2020-1472.json")
+    assert r["vendors"] == "Microsoft"            # 14 entries, one vendor
+    assert r["affected_count"] == "14"
+    assert len(r["products"].split(" | ")) == 14  # 14 distinct products
+
+
+def test_multi_vendor_distinct_flattening_synthetic():
+    r = row("synthetic-precedence.json")
+    assert r["vendors"] == "Acme | Globex"        # Acme appears twice -> deduped
+    assert r["products"] == "Widget | Gadget"     # Widget appears twice -> deduped
+    assert r["affected_count"] == "3"
+
+
+def test_cpes_capped_at_50_with_marker():
+    rec = {
+        "cveMetadata": {"cveId": "CVE-2099-30003", "state": "PUBLISHED"},
+        "containers": {"cna": {"affected": [{
+            "vendor": "V", "product": "P",
+            "cpes": [f"cpe:2.3:a:v:p:{i}.0:*:*:*:*:*:*:*" for i in range(55)],
+        }]}},
+    }
+    r = parse.record_to_row(rec)
+    parts = r["cpes"].split(" | ")
+    assert len(parts) == 51
+    assert parts[-1] == "…(+5)"
+
+
+# ---------------------------------------------------------------------------
+# state / publication
+# ---------------------------------------------------------------------------
+def test_published_vs_rejected_state():
+    assert parse.is_published(load("CVE-2024-1086.json")) is True
+    assert parse.is_published(load("synthetic-rejected.json")) is False
+    assert parse.state_of(load("synthetic-rejected.json")) == "REJECTED"
+    assert parse.cve_id_of(load("synthetic-rejected.json")) == "CVE-2099-20002"
+
+
+# ---------------------------------------------------------------------------
+# identity derivations
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("cve_id,bucket,path", [
+    ("CVE-2024-38595", "38xxx", "cves/2024/38xxx/CVE-2024-38595.json"),
+    ("CVE-2020-1472", "1xxx", "cves/2020/1xxx/CVE-2020-1472.json"),
+    ("CVE-2024-0007", "0xxx", "cves/2024/0xxx/CVE-2024-0007.json"),
+    ("CVE-2025-123456", "123xxx", "cves/2025/123xxx/CVE-2025-123456.json"),
+])
+def test_source_path_and_bucket(cve_id, bucket, path):
+    assert parse.bucket_of(cve_id) == bucket
+    assert parse.source_path_for(cve_id) == path
+    assert parse.year_of(cve_id) == cve_id.split("-")[1]
+
+
+# ---------------------------------------------------------------------------
+# description: english-only, collapse, optional truncation
+# ---------------------------------------------------------------------------
+def test_description_english_only_and_collapsed():
+    r = row("synthetic-precedence.json")
+    assert r["description_en"] == 'Line one, with a comma and a "quote" and a tab.'
+    assert "espanol" not in r["description_en"]   # non-en dropped
+    assert "\n" not in r["description_en"] and "\t" not in r["description_en"]
+
+
+def test_description_truncation_flag():
+    r = row("synthetic-precedence.json", max_desc_chars=10)
+    assert r["description_en"] == "Line one, " + "…"
+    # default: no truncation
+    assert row("synthetic-precedence.json")["description_en"].endswith("a tab.")
+
+
+# ---------------------------------------------------------------------------
+# CSV hygiene: a nasty description round-trips with no column drift
+# ---------------------------------------------------------------------------
+def test_csv_roundtrip_stdlib_no_column_drift():
+    r = row("synthetic-precedence.json")
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=parse.COLUMNS, quoting=csv.QUOTE_MINIMAL,
+                       lineterminator="\n")
+    w.writeheader()
+    w.writerow(r)
+    buf.seek(0)
+    back = list(csv.DictReader(buf))
+    assert len(back) == 1
+    got = back[0]
+    assert list(got.keys()) == parse.COLUMNS          # no extra/missing columns
+    assert got["description_en"] == r["description_en"]   # comma + quote intact
+    assert got["cve_id"] == "CVE-2099-10001"
+
+
+def test_malformed_array_entries_do_not_crash():
+    # non-dict junk salted into every array the parser walks must be skipped,
+    # not crash — real upstream data is mostly clean but not guaranteed.
+    rec = {
+        "cveMetadata": {"cveId": "CVE-2099-40004", "state": "PUBLISHED"},
+        "containers": {
+            "cna": {
+                "descriptions": ["junk", {"lang": "en", "value": "ok"}],
+                "metrics": ["junk", {"cvssV3_1": {"baseScore": 5.0, "version": "3.1"}}],
+                "problemTypes": ["junk", {"descriptions":
+                                          ["x", {"cweId": "CWE-79", "description": "xss"}]}],
+                "affected": ["junk", {"vendor": "V", "product": "P"}],
+                "references": ["junk", {"url": "https://e/x"}],
+            },
+            "adp": ["junk", {"providerMetadata": {"shortName": "CISA-ADP"},
+                             "metrics": ["junk", {"other": {"type": "ssvc", "content":
+                                         {"options": [{"Exploitation": "none"}]}}}]}],
+        },
+    }
+    r = parse.record_to_row(rec)
+    assert r["description_en"] == "ok"
+    assert r["cvss_base_score"] == "5.0"
+    assert r["cwe_id"] == "CWE-79"
+    assert r["vendors"] == "V"
+    assert r["reference_count"] == "1"
+    assert r["ssvc_exploitation"] == "none"
+
+
+def test_csv_roundtrip_pandas_no_column_drift():
+    pd = pytest.importorskip("pandas")
+    r = row("synthetic-precedence.json")
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=parse.COLUMNS, quoting=csv.QUOTE_MINIMAL,
+                       lineterminator="\n")
+    w.writeheader()
+    w.writerow(r)
+    buf.seek(0)
+    df = pd.read_csv(buf, dtype=str, keep_default_na=False)
+    assert list(df.columns) == parse.COLUMNS
+    assert len(df) == 1
+    assert df.iloc[0]["description_en"] == r["description_en"]

@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+
+# Local scratch / clones (never commit the upstream working tree)
+/tmp/
+clone/
+*.local
+
+# NOTE: data/ is intentionally NOT ignored — the generated CSV dataset,
+# data/state.json, data/kev_snapshot.json and data/changes/ ARE the deliverable
+# and are committed by the daily workflow.

@@ -1,0 +1,22 @@
+{
+  "dataType": "CVE_RECORD",
+  "dataVersion": "5.1",
+  "cveMetadata": {
+    "cveId": "CVE-2099-20002",
+    "assignerOrgId": "00000000-0000-0000-0000-000000000001",
+    "assignerShortName": "synthetic-cna",
+    "state": "REJECTED",
+    "dateReserved": "2099-01-01T00:00:00.000Z",
+    "datePublished": "2099-02-01T00:00:00.000Z",
+    "dateUpdated": "2099-04-01T00:00:00.000Z"
+  },
+  "containers": {
+    "cna": {
+      "providerMetadata": { "orgId": "00000000-0000-0000-0000-000000000001", "shortName": "synthetic-cna" },
+      "rejectedReasons": [
+        { "lang": "en", "value": "This CVE ID was rejected as a duplicate of CVE-2099-10001." }
+      ],
+      "replacedBy": [ "CVE-2099-10001" ]
+    }
+  }
+}
