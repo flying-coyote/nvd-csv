@@ -7,9 +7,8 @@ collapse, " | " flattening).
 Standard library only. No I/O — callers hand in a parsed dict and (optionally)
 a KEV index; the row that comes back is all strings, ready for csv.DictWriter.
 
-Schema note: trimmed to 18 columns. The derivation helpers
-(year_of/bucket_of/source_path_for) stay because sharding still uses them even
-though they are no longer output columns.
+Schema note: 19 columns. ``year_of`` stays even though it isn't an output column,
+because sharding derives each row's band from the CVE ID.
 """
 
 from __future__ import annotations
@@ -120,10 +119,6 @@ def _shortname(container) -> str:
 # ---------------------------------------------------------------------------
 # identity derivations (stable from the CVE ID alone)
 # ---------------------------------------------------------------------------
-def cve_id_of(record) -> str:
-    return (record.get("cveMetadata") or {}).get("cveId") or ""
-
-
 def state_of(record) -> str:
     return (record.get("cveMetadata") or {}).get("state") or ""
 
@@ -134,17 +129,6 @@ def is_published(record) -> bool:
 
 def year_of(cve_id: str) -> str:
     return cve_id.split("-")[1]
-
-
-def bucket_of(cve_id: str) -> str:
-    """Thousands bucket as used in the upstream tree: 38595 -> '38xxx', 7 -> '0xxx'."""
-    seq = int(cve_id.split("-")[2])
-    return f"{seq // 1000}xxx"
-
-
-def source_path_for(cve_id: str) -> str:
-    """Upstream path for a CVE — used by sharding; not an output column."""
-    return f"cves/{year_of(cve_id)}/{bucket_of(cve_id)}/{cve_id}.json"
 
 
 # ---------------------------------------------------------------------------

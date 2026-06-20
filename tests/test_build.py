@@ -8,7 +8,7 @@ import os
 
 import pytest
 
-from src import build, parse, shards, sources
+from src import build, shards, sources
 from src import state as state_mod
 
 FIXDIR = os.path.join(os.path.dirname(__file__), "fixtures")
@@ -22,10 +22,9 @@ def load_fix(name):
 
 
 def make_clone(root, records_by_id):
-    """Lay records out at cves/<year>/<bucket>/CVE-*.json like the real repo."""
+    """Lay records out under cves/<year>/ as the build's walk expects."""
     for cid, rec in records_by_id.items():
-        rel = parse.source_path_for(cid)
-        path = os.path.join(root, rel)
+        path = os.path.join(root, "cves", cid.split("-")[1], cid + ".json")
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as fh:
             json.dump(rec, fh)

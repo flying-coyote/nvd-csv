@@ -85,7 +85,7 @@ products, several CWEs) are packed into one cell separated by ` | `.
 | group | columns | what it tells you |
 |---|---|---|
 | **identity** | `cve_id`, `assigner_short_name` | which CVE, and who wrote it |
-| **timing** | `date_published`, `date_updated` | when it went public and when it last changed (calendar date, `YYYY-MM-DD`, UTC) |
+| **timing** | `date_published`, `date_updated` | when it went public and when it last changed (calendar dates, UTC; `date_updated` is blank if unchanged since publish) |
 | **description** | `title`, `description_en` | the human-readable summary of the flaw |
 | **how bad** | `cvss_version`, `cvss_base_score`, `cvss_vector`, `cvss_source` | the severity score, the vector, and where the score came from |
 | **what kind** | `cwe_ids_all` | the weakness type(s), e.g. `CWE-787 \| CWE-125` |

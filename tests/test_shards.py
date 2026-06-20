@@ -126,13 +126,11 @@ def test_huge_field_roundtrips(tmp_path):
     assert shards.stats_from_file(path)["rows"] == 1
 
 
-def test_stats_and_stats_from_file_agree(tmp_path):
+def test_stats_from_file(tmp_path):
     path = os.path.join(tmp_path, "shards", "cve_2022_to_2024.csv")
     rows = {c: mkrow(c) for c in ["CVE-2024-5", "CVE-2023-100", "CVE-2022-2"]}
     nbytes = shards.write_shard(path, rows)
-    s_mem = shards.stats(rows, nbytes)
-    s_file = shards.stats_from_file(path)
-    assert s_mem == s_file
-    assert s_mem["rows"] == 3
-    assert s_mem["year_min"] == 2022 and s_mem["year_max"] == 2024
-    assert s_mem["bytes"] == nbytes
+    s = shards.stats_from_file(path)
+    assert s["rows"] == 3
+    assert s["bytes"] == nbytes
+    assert s["year_min"] == 2022 and s["year_max"] == 2024
