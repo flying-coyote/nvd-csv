@@ -68,15 +68,16 @@ def test_full_builds_shards_and_skips_rejected(env, monkeypatch):
 
     names = {os.path.splitext(os.path.basename(p))[0]
              for p in shards.list_shard_files(env["data"])}
-    assert names == {"cve_2021_and_before", "cve_2022_to_2024", "cve_2025_and_after"}
+    # fixtures span 2020-2025; with default uppers 2022,2025 that's two bands
+    assert names == {"cve_2022_and_before", "cve_2023_to_2025"}
 
     st = state_mod.load_state(env["data"])
     assert st["total_rows"] == 5            # REJECTED excluded
     assert st["run_mode_last"] == "full"
     assert st["last_processed_fetchTime"] == "2026-06-18T00:00:00.000Z"
 
-    mid = shards.read_shard(shards.shard_path(env["data"], "cve_2022_to_2024"))
-    assert set(mid) == {"CVE-2024-1086", "CVE-2024-38595"}
+    mid = shards.read_shard(shards.shard_path(env["data"], "cve_2023_to_2025"))
+    assert set(mid) == {"CVE-2024-1086", "CVE-2024-38595", "CVE-2025-40039"}
     assert mid["CVE-2024-1086"]["cvss_base_score"] == "7.8"
 
 
@@ -105,7 +106,7 @@ def test_delta_removes_record_that_became_rejected(env, monkeypatch):
     build.main(["--mode", "delta", "--no-kev", "--data-dir", env["data"],
                 "--readme", env["readme"]])
 
-    mid = shards.read_shard(shards.shard_path(env["data"], "cve_2022_to_2024"))
+    mid = shards.read_shard(shards.shard_path(env["data"], "cve_2023_to_2025"))
     assert "CVE-2024-1086" not in mid            # removed
     assert "CVE-2024-38595" in mid               # untouched
     assert state_mod.load_state(env["data"])["total_rows"] == 4
@@ -123,7 +124,7 @@ def test_delta_double_apply_is_idempotent(env, monkeypatch):
                         lambda s, changed, **k: ({c: rec_map[c] for c in changed
                                                   if c in rec_map}, {}))
 
-    path = shards.shard_path(env["data"], "cve_2022_to_2024")
+    path = shards.shard_path(env["data"], "cve_2023_to_2025")
     build.main(["--mode", "delta", "--no-kev", "--data-dir", env["data"],
                 "--readme", env["readme"]])
     bytes_first = open(path, "rb").read()

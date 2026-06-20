@@ -21,23 +21,23 @@ def test_band_naming_three_bands():
     assert shards.shard_name_for("CVE-2021-9999", cfg) == "cve_2021_and_before"
     assert shards.shard_name_for("CVE-2022-1", cfg) == "cve_2022_to_2024"
     assert shards.shard_name_for("CVE-2024-38595", cfg) == "cve_2022_to_2024"
-    assert shards.shard_name_for("CVE-2025-1", cfg) == "cve_2025_and_after"
-    assert shards.shard_name_for("CVE-2030-1", cfg) == "cve_2025_and_after"
+    assert shards.shard_name_for("CVE-2025-1", cfg) == "cve_2025_to_now"
+    assert shards.shard_name_for("CVE-2030-1", cfg) == "cve_2025_to_now"
 
 
 def test_band_name_for_boundaries():
     assert shards.band_name_for(2021, [2021, 2024]) == "cve_2021_and_before"
     assert shards.band_name_for(2022, [2021, 2024]) == "cve_2022_to_2024"
     assert shards.band_name_for(2024, [2021, 2024]) == "cve_2022_to_2024"
-    assert shards.band_name_for(2025, [2021, 2024]) == "cve_2025_and_after"
+    assert shards.band_name_for(2025, [2021, 2024]) == "cve_2025_to_now"
     # a single boundary -> two bands
     assert shards.band_name_for(2017, [2017]) == "cve_2017_and_before"
-    assert shards.band_name_for(2018, [2017]) == "cve_2018_and_after"
+    assert shards.band_name_for(2018, [2017]) == "cve_2018_to_now"
 
 
 def test_shardconfig_tolerates_bad_band_uppers():
-    assert ShardConfig(band_uppers=None).band_uppers == [2021, 2024]
-    assert ShardConfig(band_uppers="2021,2024").band_uppers == [2021, 2024]   # str -> default
+    assert ShardConfig(band_uppers=None).band_uppers == [2022, 2025]
+    assert ShardConfig(band_uppers="2022,2025").band_uppers == [2022, 2025]   # str -> default
     assert ShardConfig(band_uppers=[2021, "x", 2024]).band_uppers == [2021, 2024]
     assert ShardConfig(band_uppers=[2024, 2021]).band_uppers == [2021, 2024]  # sorted
 
