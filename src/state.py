@@ -9,7 +9,6 @@ Shape (schema_version 1):
       "run_mode_last": "full" | "delta",
       "total_rows": 0,
       "kev_catalog_date": "...",
-      "split_years": [2024, 2025],         # years auto-split into bucket sub-shards
       "shards": { "<name>": {"rows": N, "bytes": N, "year_min": Y, "year_max": Y} }
     }
 """
@@ -30,7 +29,6 @@ def default_state() -> dict:
         "run_mode_last": None,
         "total_rows": 0,
         "kev_catalog_date": None,
-        "split_years": [],
         "shards": {},
     }
 

@@ -34,11 +34,12 @@ COLUMNS = [
     "cisa_kev", "kev_date_added",
     "ssvc_exploitation", "ssvc_automatable", "ssvc_technical_impact",
     # affected
-    "vendors", "products",
+    "vendors", "products", "cpes",
 ]
 
 LIST_DELIM = " | "
-OVERFLOW = "…"    # the … appended on --max-desc truncation
+LIST_CAP = 50          # cap for the cpes list
+OVERFLOW = "…"    # the … in "…(+N)" markers and --max-desc truncation
 
 # CVSS metric keys mapped to (canonical version string, comparable rank).
 # Highest rank wins "highest version within container": v4.0 > v3.1 > v3.0 > v2.0.
@@ -68,14 +69,18 @@ def _num(value) -> str:
     return "" if value is None else str(value)
 
 
-def _flatten(values) -> str:
-    """De-dup order-stable, clean each cell, join with ' | '."""
+def _flatten(values, cap: int | None = None) -> str:
+    """De-dup order-stable, clean each cell, join with ' | '. With ``cap`` set,
+    keep the first ``cap`` distinct values and append a ``…(+N)`` element."""
     distinct, seen = [], set()
     for v in values:
         v = _clean(v)
         if v and v not in seen:
             seen.add(v)
             distinct.append(v)
+    if cap is not None and len(distinct) > cap:
+        n = len(distinct) - cap
+        return LIST_DELIM.join(distinct[:cap] + [f"{OVERFLOW}(+{n})"])
     return LIST_DELIM.join(distinct)
 
 
@@ -231,6 +236,28 @@ def _affected_fields(cna) -> dict:
     return {"vendors": _flatten(vendors), "products": _flatten(products)}
 
 
+def _cpe_values(cna, adp_list):
+    """Distinct CPE 2.3 criteria from affected[].cpes and cpeApplicability,
+    across CNA + ADP containers."""
+    cpes = []
+    for container in [cna] + list(adp_list):
+        if not isinstance(container, dict):
+            continue
+        for entry in (container.get("affected") or []):
+            if isinstance(entry, dict):
+                cpes.extend(entry.get("cpes") or [])
+        for applic in (container.get("cpeApplicability") or []):
+            if not isinstance(applic, dict):
+                continue
+            for node in (applic.get("nodes") or []):
+                if not isinstance(node, dict):
+                    continue
+                for match in (node.get("cpeMatch") or []):
+                    if isinstance(match, dict) and match.get("criteria"):
+                        cpes.append(match["criteria"])
+    return cpes
+
+
 # ---------------------------------------------------------------------------
 # text & KEV
 # ---------------------------------------------------------------------------
@@ -292,4 +319,5 @@ def record_to_row(record, kev_index=None, max_desc_chars: int = 0) -> dict:
     row.update(_kev_fields(cve_id, kev_index))
     row.update(_ssvc_fields(cisa))
     row.update(_affected_fields(cna))
+    row["cpes"] = _flatten(_cpe_values(cna, adp_list), cap=LIST_CAP)
     return row
