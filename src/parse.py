@@ -54,13 +54,6 @@ _CWE_RE = re.compile(r"^CWE-\d+$")
 _WS_RE = re.compile(r"\s+")
 _FRAC_SECONDS = re.compile(r"\.\d+")   # strip ISO fractional seconds: :34.073Z -> :34Z
 
-# SSVC decision-point values compacted to one character (closed value sets).
-_SSVC_CODES = {
-    "exploitation": {"none": "n", "poc": "p", "public_poc": "p", "active": "a"},
-    "automatable": {"no": "n", "yes": "y"},
-    "technical impact": {"partial": "p", "total": "t"},
-}
-
 
 # ---------------------------------------------------------------------------
 # small helpers
@@ -210,13 +203,6 @@ def _cwe_fields(cna, adp_list) -> dict:
 # ---------------------------------------------------------------------------
 # SSVC (CISA-ADP only)
 # ---------------------------------------------------------------------------
-def _ssvc_code(field, value):
-    """One-character SSVC code; unknown values pass through unchanged."""
-    if not value:
-        return ""
-    return _SSVC_CODES.get(field, {}).get(value.lower(), value)
-
-
 def _ssvc_fields(cisa) -> dict:
     out = {"ssvc_exploitation": "", "ssvc_automatable": "",
            "ssvc_technical_impact": ""}
@@ -232,10 +218,9 @@ def _ssvc_fields(cisa) -> dict:
                 if isinstance(opt, dict):
                     for k, v in opt.items():
                         kv[k.strip().lower()] = _clean(v)
-            out["ssvc_exploitation"] = _ssvc_code("exploitation", kv.get("exploitation", ""))
-            out["ssvc_automatable"] = _ssvc_code("automatable", kv.get("automatable", ""))
-            out["ssvc_technical_impact"] = _ssvc_code("technical impact",
-                                                      kv.get("technical impact", ""))
+            out["ssvc_exploitation"] = kv.get("exploitation", "")
+            out["ssvc_automatable"] = kv.get("automatable", "")
+            out["ssvc_technical_impact"] = kv.get("technical impact", "")
             break
     return out
 

@@ -89,7 +89,7 @@ products, several CWEs) are packed into one cell separated by ` | `.
 | **description** | `title`, `description_en` | the human-readable summary of the flaw |
 | **how bad** | `cvss_version`, `cvss_base_score`, `cvss_vector`, `cvss_source` | the severity score, the vector, and where the score came from |
 | **what kind** | `cwe_ids_all` | the weakness type(s), e.g. `CWE-787 \| CWE-125` |
-| **being exploited?** | `cisa_kev`, `kev_date_added`, `ssvc_exploitation`, `ssvc_automatable`, `ssvc_technical_impact` | is it on the KEV list (`1`/`0`), and CISA's SSVC triage (one-char codes) |
+| **being exploited?** | `cisa_kev`, `kev_date_added`, `ssvc_exploitation`, `ssvc_automatable`, `ssvc_technical_impact` | is it on the KEV list (`1`/`0`), and CISA's SSVC triage |
 | **what it affects** | `vendors`, `products`, `cpes` | affected vendor/product names, plus machine-matchable CPE 2.3 strings |
 
 A note on severity: there's no `cvss_base_severity` column because the word
@@ -130,17 +130,16 @@ expanded, and read the full
 same way) for what each metric means.
 
 **SSVC — CISA's "what should I do about it" triage.** Three decision points,
-compacted to one character each to save space:
+straight from the record:
 
 | column | values |
 |---|---|
-| `ssvc_exploitation` | `n` none · `p` proof-of-concept exists · `a` active in the wild |
-| `ssvc_automatable` | `y` yes · `n` no (can an attacker automate it at scale) |
-| `ssvc_technical_impact` | `p` partial · `t` total (how much control it gives) |
+| `ssvc_exploitation` | `none` · `poc` (proof-of-concept exists) · `active` (in the wild) |
+| `ssvc_automatable` | `yes` · `no` (can an attacker automate it at scale) |
+| `ssvc_technical_impact` | `partial` · `total` (how much control it gives) |
 
-Read together they tell you how hard to run: `a` + `y` + `t` (actively
-exploited, automatable, total impact) is a drop-everything bug. Background and
-the full decision tree are in
+Read together they tell you how hard to run: `active` + `yes` + `total` is a
+drop-everything bug. Background and the full decision tree are in
 [CISA's SSVC guide](https://www.cisa.gov/ssvc). (Empty means the record hasn't
 been triaged — most non-enriched CVEs.)
 
@@ -252,9 +251,9 @@ creeps toward the cap.
   removed from the dataset.
 - **A daily snapshot, not real-time.** Upstream updates roughly every 7 minutes;
   this refreshes once a day.
-- **Compact encodings:** `cisa_kev` is `1`/`0`, the SSVC fields are one-character
-  codes (see the legend above), dates are trimmed to whole seconds, and the
-  `cpes`/multi-value lists are capped at 50 entries with a `…(+N)` marker.
+- **Compact encodings:** `cisa_kev` is `1`/`0`, dates are trimmed to whole
+  seconds, and the `cpes`/multi-value lists are capped at 50 entries with a
+  `…(+N)` marker.
 - **English descriptions only.**
 - **Not a replacement for NVD's full CPE configurations.** If you're doing
   serious automated asset matching with complex version ranges, treat `cpes`
