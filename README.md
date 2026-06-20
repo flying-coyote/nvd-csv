@@ -97,6 +97,12 @@ A note on severity: there's no `cvss_base_severity` column because the word
 4.0–6.9 Medium, 7.0–8.9 High, 9.0–10.0 Critical — so you derive it from
 `cvss_base_score`.
 
+A note on `date_updated`: it's the last time a publisher (the CNA, or CISA via
+Vulnrichment) actually changed the record, read from the record's own provider
+metadata rather than the CVE Program's `cveMetadata.dateUpdated` — which a 2024
+bulk migration stamped onto ~46% of records, burying their real dates. It's left
+**blank** when the record hasn't changed since publication.
+
 ## Reading the scoring and exploitation fields
 
 These three are where most of the prioritization signal lives, so they're worth
@@ -237,8 +243,8 @@ glance. If you need more, the full record is always one click away at
 
 ## How the files are organized
 
-The data is split into three CSVs by age (`cve_2021_and_before`,
-`cve_2022_to_2024`, `cve_2025_and_after`) only because GitHub caps a single file
+The data is split into three CSVs by age (`cve_2022_and_before`,
+`cve_2023_to_2025`, `cve_2026_to_now`) only because GitHub caps a single file
 at 100 MB and the full dataset is ~180 MB. There's nothing clever to it — read
 all three and you have everything. The split points are tunable
 (`--band-uppers`) if you rebuild it yourself, and the build warns if any file

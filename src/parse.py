@@ -74,6 +74,28 @@ def _date(value) -> str:
     return _clean(value).split("T")[0]
 
 
+def _real_date_updated(meta, cna, adp_list) -> str:
+    """The real last-change date: the latest providerMetadata.dateUpdated among
+    the actual publishers — the CNA and any ADP except the 'CVE' program
+    container, whose date is the CVE Program's bulk-migration stamp rather than a
+    substantive change. Falls back to the top-level cveMetadata.dateUpdated only
+    when a record carries no provider date at all."""
+    candidates = []
+    d = _date((cna.get("providerMetadata") or {}).get("dateUpdated"))
+    if d:
+        candidates.append(d)
+    for adp in adp_list:
+        if not isinstance(adp, dict):
+            continue
+        pm = adp.get("providerMetadata") or {}
+        if (pm.get("shortName") or "") == "CVE":
+            continue  # the CVE Program migration container
+        d = _date(pm.get("dateUpdated"))
+        if d:
+            candidates.append(d)
+    return max(candidates) if candidates else _date(meta.get("dateUpdated"))
+
+
 def _flatten(values, cap: int | None = None) -> str:
     """De-dup order-stable, clean each cell, join with ' | '. With ``cap`` set,
     keep the first ``cap`` distinct values and append a ``…(+N)`` element."""
@@ -315,8 +337,10 @@ def record_to_row(record, kev_index=None, max_desc_chars: int = 0) -> dict:
     row = {col: "" for col in COLUMNS}
     row["cve_id"] = cve_id
     row["assigner_short_name"] = _clean(meta.get("assignerShortName"))
-    row["date_published"] = _date(meta.get("datePublished"))
-    row["date_updated"] = _date(meta.get("dateUpdated"))
+    dp = _date(meta.get("datePublished"))
+    du = _real_date_updated(meta, cna, adp_list)
+    row["date_published"] = dp
+    row["date_updated"] = "" if du == dp else du   # blank = unchanged since publish
     row["title"] = _clean(cna.get("title"))
     row["description_en"] = _description_en(cna, max_desc_chars)
     row.update(_cvss_fields(cna, cisa))

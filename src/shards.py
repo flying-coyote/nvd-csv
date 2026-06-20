@@ -1,11 +1,11 @@
 """Shard naming and byte-stable CSV read/upsert/remove.
 
 Sharding is by coarse age band (§7): a small, fixed set of multi-year shards
-sized to stay under GitHub's per-file limit, e.g. with band uppers [2021, 2024]:
+sized to stay under GitHub's per-file limit, e.g. with band uppers [2022, 2025]:
 
-    cve_2021_and_before.csv   (<= 2021)
-    cve_2022_to_2024.csv      (2022..2024)
-    cve_2025_and_after.csv    (>= 2025)
+    cve_2022_and_before.csv   (<= 2022)
+    cve_2023_to_2025.csv      (2023..2025)
+    cve_2026_to_now.csv       (>= 2026)
 
 Bands keep the shard count low at the cost of larger files; there is no
 auto-split. build.py warns loudly if any shard exceeds ``shard_max_bytes`` so
@@ -37,7 +37,7 @@ while True:
     except OverflowError:
         _csv_limit //= 10
 
-DEFAULT_BAND_UPPERS = [2021, 2024]              # -> 3 shards
+DEFAULT_BAND_UPPERS = [2022, 2025]              # -> 3 shards
 DEFAULT_SHARD_MAX_BYTES = 90 * 1024 * 1024      # 90 MB, under GitHub's 100
 
 
@@ -67,7 +67,7 @@ def band_name_for(year, uppers) -> str:
     for i in range(1, len(uppers)):
         if year <= uppers[i]:
             return f"cve_{uppers[i - 1] + 1}_to_{uppers[i]}"
-    return f"cve_{uppers[-1] + 1}_and_after"
+    return f"cve_{uppers[-1] + 1}_to_now"
 
 
 def shard_name_for(cve_id: str, cfg: ShardConfig) -> str:

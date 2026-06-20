@@ -407,9 +407,9 @@ def build_arg_parser():
                    help="cap records processed (dry runs); 0 = no cap")
     p.add_argument("--max-desc-chars", type=int, default=0,
                    help="truncate description_en to N chars (0 = no truncation)")
-    p.add_argument("--band-uppers", default="2021,2024",
+    p.add_argument("--band-uppers", default="2022,2025",
                    help="comma-separated ascending year upper-bounds defining the "
-                        "age-band shards (default 2021,2024 -> 3 shards)")
+                        "age-band shards (default 2022,2025 -> 3 shards)")
     p.add_argument("--shard-max-bytes", type=int,
                    default=shards.DEFAULT_SHARD_MAX_BYTES)
     p.add_argument("--max-change-rows", type=int, default=50000,

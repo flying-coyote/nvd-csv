@@ -16,9 +16,9 @@ let
     // The current shard files. If the bands are ever re-tuned, update this list
     // (or use the auto-discover variant at the bottom of this file).
     Shards = {
-        "cve_2021_and_before.csv",
-        "cve_2022_to_2024.csv",
-        "cve_2025_and_after.csv"
+        "cve_2022_and_before.csv",
+        "cve_2023_to_2025.csv",
+        "cve_2026_to_now.csv"
     },
 
     LoadOne = (name as text) as table =>

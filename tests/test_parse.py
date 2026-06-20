@@ -136,8 +136,50 @@ def test_kev_absent_when_not_in_index():
 def test_dates_reduced_to_calendar_date():
     r = row("CVE-2024-1086.json")
     assert r["date_published"] == "2024-01-31"   # was 2024-01-31T12:14:34.073Z
-    assert r["date_updated"] == "2025-10-21"     # was 2025-10-21T23:05:25.720Z
+    # real last change = CISA-ADP enrichment 2025-10-21 (later than the CNA's date)
+    assert r["date_updated"] == "2025-10-21"
     assert "T" not in r["date_published"]
+
+
+def test_date_updated_recovers_real_provider_over_migration():
+    # top-level dateUpdated is the 2024-08 program migration bump; the real change
+    # dates live in the providers' own metadata -> use the latest of those.
+    rec = {
+        "cveMetadata": {"cveId": "CVE-2099-50005", "state": "PUBLISHED",
+                        "datePublished": "2015-01-01T00:00:00Z",
+                        "dateUpdated": "2024-08-06T07:59:00Z"},
+        "containers": {
+            "cna": {"providerMetadata": {"shortName": "acme",
+                                         "dateUpdated": "2016-05-10T09:00:00Z"}},
+            "adp": [
+                {"providerMetadata": {"shortName": "CVE",          # migration -> ignored
+                                      "dateUpdated": "2024-08-06T07:59:00Z"}},
+                {"providerMetadata": {"shortName": "CISA-ADP",     # real enrichment
+                                      "dateUpdated": "2023-11-20T00:00:00Z"}},
+            ],
+        },
+    }
+    r = parse.record_to_row(rec)
+    assert r["date_published"] == "2015-01-01"
+    assert r["date_updated"] == "2023-11-20"   # latest real provider, not 2024-08
+
+
+def test_date_updated_nulled_when_equal_to_published():
+    # CNA published and never revised: real date == published -> blank.
+    rec = {
+        "cveMetadata": {"cveId": "CVE-2099-50006", "state": "PUBLISHED",
+                        "datePublished": "2017-04-02T20:00:00Z",
+                        "dateUpdated": "2024-08-06T07:59:00Z"},   # migration bump
+        "containers": {
+            "cna": {"providerMetadata": {"shortName": "huawei",
+                                         "dateUpdated": "2017-04-02T19:57:01Z"}},
+            "adp": [{"providerMetadata": {"shortName": "CVE",
+                                          "dateUpdated": "2024-08-06T07:59:00Z"}}],
+        },
+    }
+    r = parse.record_to_row(rec)
+    assert r["date_published"] == "2017-04-02"
+    assert r["date_updated"] == ""             # unchanged since publish
 
 
 # ---------------------------------------------------------------------------
