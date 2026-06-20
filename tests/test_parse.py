@@ -99,16 +99,16 @@ def test_cwe_ids_single_real():
 # ---------------------------------------------------------------------------
 # SSVC + KEV (ransomware flag dropped)
 # ---------------------------------------------------------------------------
-def test_ssvc_extracted_from_cisa_adp_as_codes():
-    r = row("CVE-2024-38595.json")  # none / no / partial -> n / n / p
+def test_ssvc_extracted_from_cisa_adp():
+    r = row("CVE-2024-38595.json")
     assert (r["ssvc_exploitation"], r["ssvc_automatable"], r["ssvc_technical_impact"]) \
-        == ("n", "n", "p")
+        == ("none", "no", "partial")
 
 
-def test_ssvc_single_char_codes_synthetic():
-    r = row("synthetic-precedence.json")  # poc / yes / total -> p / y / t
+def test_ssvc_synthetic_values():
+    r = row("synthetic-precedence.json")
     assert (r["ssvc_exploitation"], r["ssvc_automatable"], r["ssvc_technical_impact"]) \
-        == ("p", "y", "t")
+        == ("poc", "yes", "total")
 
 
 def test_ssvc_empty_without_cisa_adp():
@@ -238,7 +238,7 @@ def test_malformed_array_entries_do_not_crash():
     assert r["cvss_base_score"] == "5.0"
     assert r["cwe_ids_all"] == "CWE-79"
     assert r["vendors"] == "V"
-    assert r["ssvc_exploitation"] == "n"   # none -> n
+    assert r["ssvc_exploitation"] == "none"
 
 
 # ---------------------------------------------------------------------------
