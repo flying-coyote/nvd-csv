@@ -99,10 +99,16 @@ def test_cwe_ids_single_real():
 # ---------------------------------------------------------------------------
 # SSVC + KEV (ransomware flag dropped)
 # ---------------------------------------------------------------------------
-def test_ssvc_extracted_from_cisa_adp():
-    r = row("CVE-2024-38595.json")
+def test_ssvc_extracted_from_cisa_adp_as_codes():
+    r = row("CVE-2024-38595.json")  # none / no / partial -> n / n / p
     assert (r["ssvc_exploitation"], r["ssvc_automatable"], r["ssvc_technical_impact"]) \
-        == ("none", "no", "partial")
+        == ("n", "n", "p")
+
+
+def test_ssvc_single_char_codes_synthetic():
+    r = row("synthetic-precedence.json")  # poc / yes / total -> p / y / t
+    assert (r["ssvc_exploitation"], r["ssvc_automatable"], r["ssvc_technical_impact"]) \
+        == ("p", "y", "t")
 
 
 def test_ssvc_empty_without_cisa_adp():
@@ -116,15 +122,22 @@ def test_kev_populated_from_index_and_matched_by_id():
     kev = {"CVE-2099-10001": {"dateAdded": "2099-02-15",
                               "knownRansomwareCampaignUse": "Unknown"}}
     r = row("synthetic-precedence.json", kev_index=kev)
-    assert r["cisa_kev"] == "true"
+    assert r["cisa_kev"] == "1"
     assert r["kev_date_added"] == "2099-02-15"
 
 
 def test_kev_absent_when_not_in_index():
     r = row("synthetic-precedence.json", kev_index={"CVE-0000-0000": {}})
-    assert r["cisa_kev"] == "false"
+    assert r["cisa_kev"] == "0"
     assert r["kev_date_added"] == ""
-    assert row("synthetic-precedence.json")["cisa_kev"] == "false"  # no index at all
+    assert row("synthetic-precedence.json")["cisa_kev"] == "0"  # no index at all
+
+
+def test_dates_trimmed_to_whole_seconds():
+    r = row("CVE-2024-1086.json")
+    assert r["date_published"] == "2024-01-31T12:14:34Z"   # was ...34.073Z
+    assert r["date_updated"] == "2025-10-21T23:05:25Z"     # was ...25.720Z
+    assert "." not in r["date_published"]
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +238,7 @@ def test_malformed_array_entries_do_not_crash():
     assert r["cvss_base_score"] == "5.0"
     assert r["cwe_ids_all"] == "CWE-79"
     assert r["vendors"] == "V"
-    assert r["ssvc_exploitation"] == "none"
+    assert r["ssvc_exploitation"] == "n"   # none -> n
 
 
 # ---------------------------------------------------------------------------

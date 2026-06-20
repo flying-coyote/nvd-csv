@@ -52,6 +52,14 @@ _CVSS_KEYS = {
 
 _CWE_RE = re.compile(r"^CWE-\d+$")
 _WS_RE = re.compile(r"\s+")
+_FRAC_SECONDS = re.compile(r"\.\d+")   # strip ISO fractional seconds: :34.073Z -> :34Z
+
+# SSVC decision-point values compacted to one character (closed value sets).
+_SSVC_CODES = {
+    "exploitation": {"none": "n", "poc": "p", "public_poc": "p", "active": "a"},
+    "automatable": {"no": "n", "yes": "y"},
+    "technical impact": {"partial": "p", "total": "t"},
+}
 
 
 # ---------------------------------------------------------------------------
@@ -67,6 +75,11 @@ def _clean(value) -> str:
 def _num(value) -> str:
     """Numbers stringified as-is (a JSON int 10 stays "10"); None -> ""."""
     return "" if value is None else str(value)
+
+
+def _ts(value) -> str:
+    """ISO-8601 timestamp trimmed to whole seconds (drop fractional seconds)."""
+    return _FRAC_SECONDS.sub("", _clean(value))
 
 
 def _flatten(values, cap: int | None = None) -> str:
@@ -197,6 +210,13 @@ def _cwe_fields(cna, adp_list) -> dict:
 # ---------------------------------------------------------------------------
 # SSVC (CISA-ADP only)
 # ---------------------------------------------------------------------------
+def _ssvc_code(field, value):
+    """One-character SSVC code; unknown values pass through unchanged."""
+    if not value:
+        return ""
+    return _SSVC_CODES.get(field, {}).get(value.lower(), value)
+
+
 def _ssvc_fields(cisa) -> dict:
     out = {"ssvc_exploitation": "", "ssvc_automatable": "",
            "ssvc_technical_impact": ""}
@@ -212,9 +232,10 @@ def _ssvc_fields(cisa) -> dict:
                 if isinstance(opt, dict):
                     for k, v in opt.items():
                         kv[k.strip().lower()] = _clean(v)
-            out["ssvc_exploitation"] = kv.get("exploitation", "")
-            out["ssvc_automatable"] = kv.get("automatable", "")
-            out["ssvc_technical_impact"] = kv.get("technical impact", "")
+            out["ssvc_exploitation"] = _ssvc_code("exploitation", kv.get("exploitation", ""))
+            out["ssvc_automatable"] = _ssvc_code("automatable", kv.get("automatable", ""))
+            out["ssvc_technical_impact"] = _ssvc_code("technical impact",
+                                                      kv.get("technical impact", ""))
             break
     return out
 
@@ -279,8 +300,8 @@ def _description_en(cna, max_desc_chars: int) -> str:
 def _kev_fields(cve_id, kev_index) -> dict:
     entry = kev_index.get(cve_id) if kev_index else None
     if entry is None:
-        return {"cisa_kev": "false", "kev_date_added": ""}
-    return {"cisa_kev": "true", "kev_date_added": _clean(entry.get("dateAdded"))}
+        return {"cisa_kev": "0", "kev_date_added": ""}
+    return {"cisa_kev": "1", "kev_date_added": _clean(entry.get("dateAdded"))}
 
 
 def kev_fields(cve_id, kev_index) -> dict:
@@ -310,8 +331,8 @@ def record_to_row(record, kev_index=None, max_desc_chars: int = 0) -> dict:
     row = {col: "" for col in COLUMNS}
     row["cve_id"] = cve_id
     row["assigner_short_name"] = _clean(meta.get("assignerShortName"))
-    row["date_published"] = _clean(meta.get("datePublished"))
-    row["date_updated"] = _clean(meta.get("dateUpdated"))
+    row["date_published"] = _ts(meta.get("datePublished"))
+    row["date_updated"] = _ts(meta.get("dateUpdated"))
     row["title"] = _clean(cna.get("title"))
     row["description_en"] = _description_en(cna, max_desc_chars)
     row.update(_cvss_fields(cna, cisa))
