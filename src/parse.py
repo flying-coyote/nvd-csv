@@ -52,7 +52,6 @@ _CVSS_KEYS = {
 
 _CWE_RE = re.compile(r"^CWE-\d+$")
 _WS_RE = re.compile(r"\s+")
-_FRAC_SECONDS = re.compile(r"\.\d+")   # strip ISO fractional seconds: :34.073Z -> :34Z
 
 
 # ---------------------------------------------------------------------------
@@ -70,9 +69,9 @@ def _num(value) -> str:
     return "" if value is None else str(value)
 
 
-def _ts(value) -> str:
-    """ISO-8601 timestamp trimmed to whole seconds (drop fractional seconds)."""
-    return _FRAC_SECONDS.sub("", _clean(value))
+def _date(value) -> str:
+    """ISO-8601 timestamp reduced to the calendar date (YYYY-MM-DD, UTC)."""
+    return _clean(value).split("T")[0]
 
 
 def _flatten(values, cap: int | None = None) -> str:
@@ -286,7 +285,7 @@ def _kev_fields(cve_id, kev_index) -> dict:
     entry = kev_index.get(cve_id) if kev_index else None
     if entry is None:
         return {"cisa_kev": "0", "kev_date_added": ""}
-    return {"cisa_kev": "1", "kev_date_added": _clean(entry.get("dateAdded"))}
+    return {"cisa_kev": "1", "kev_date_added": _date(entry.get("dateAdded"))}
 
 
 def kev_fields(cve_id, kev_index) -> dict:
@@ -316,8 +315,8 @@ def record_to_row(record, kev_index=None, max_desc_chars: int = 0) -> dict:
     row = {col: "" for col in COLUMNS}
     row["cve_id"] = cve_id
     row["assigner_short_name"] = _clean(meta.get("assignerShortName"))
-    row["date_published"] = _ts(meta.get("datePublished"))
-    row["date_updated"] = _ts(meta.get("dateUpdated"))
+    row["date_published"] = _date(meta.get("datePublished"))
+    row["date_updated"] = _date(meta.get("dateUpdated"))
     row["title"] = _clean(cna.get("title"))
     row["description_en"] = _description_en(cna, max_desc_chars)
     row.update(_cvss_fields(cna, cisa))

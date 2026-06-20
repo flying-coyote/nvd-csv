@@ -35,8 +35,9 @@ let
     Typed = Table.TransformColumnTypes(Combined, {
         {"cvss_base_score", type number},
         {"cisa_kev", Int64.Type},
-        {"date_published", type datetimezone},
-        {"date_updated", type datetimezone}
+        {"date_published", type date},
+        {"date_updated", type date},
+        {"kev_date_added", type date}
     })
 in
     Typed
@@ -56,6 +57,7 @@ in
 //     Combined = Table.Combine(Table.AddColumn(Files, "Data", each LoadOne([download_url]))[Data]),
 //     Typed = Table.TransformColumnTypes(Combined, {
 //         {"cvss_base_score", type number}, {"cisa_kev", Int64.Type},
-//         {"date_published", type datetimezone}, {"date_updated", type datetimezone}})
+//         {"date_published", type date}, {"date_updated", type date},
+//         {"kev_date_added", type date}})
 // in
 //     Typed
