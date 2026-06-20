@@ -140,16 +140,6 @@ def remove(rows_by_id: dict, cve_id: str) -> bool:
 # ---------------------------------------------------------------------------
 # stats
 # ---------------------------------------------------------------------------
-def stats(rows_by_id: dict, nbytes: int | None = None) -> dict:
-    years = [sort_key(c)[0] for c in rows_by_id]
-    return {
-        "rows": len(rows_by_id),
-        "bytes": nbytes if nbytes is not None else len(serialize(rows_by_id)),
-        "year_min": min(years) if years else None,
-        "year_max": max(years) if years else None,
-    }
-
-
 def stats_from_file(path: str) -> dict:
     """Cheap on-disk stats without holding all rows: stream the file once."""
     rows = 0

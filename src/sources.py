@@ -146,22 +146,16 @@ def fetch_kev(session, timeout=60):
 # full acquisition
 # ---------------------------------------------------------------------------
 def shallow_clone(dest, url=CLONE_URL, timeout=1800):
-    """Option A (recommended): git clone --depth 1. Returns the dest path."""
+    """Full-rebuild acquisition: git clone --depth 1. Returns the dest path.
+
+    (The daily *_all_CVEs_at_midnight.zip GitHub Release is a lighter
+    alternative, not implemented here.)"""
     subprocess.run(
         ["git", "clone", "--depth", "1", "--no-tags", url, dest],
         check=True, timeout=timeout,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
     )
     return dest
-
-
-def iter_record_files(repo_dir):
-    """Yield every cves/**/CVE-*.json path under a cloned/extracted dataset."""
-    cves_root = os.path.join(repo_dir, "cves")
-    for root, _dirs, files in os.walk(cves_root):
-        for name in files:
-            if name.startswith("CVE-") and name.endswith(".json"):
-                yield os.path.join(root, name)
 
 
 def year_dirs(repo_dir):
@@ -177,16 +171,3 @@ def year_dirs(repo_dir):
 def load_record(path):
     with open(path, encoding="utf-8") as fh:
         return json.load(fh)
-
-
-def download_baseline_zip(*_args, **_kwargs):  # pragma: no cover - hook only
-    """Option B hook: the daily *_all_CVEs_at_midnight.zip baseline.
-
-    Not implemented — Option A (shallow_clone) is the default full-rebuild path.
-    To implement: GET the GitHub Releases API
-    (https://api.github.com/repos/CVEProject/cvelistV5/releases),
-    find the asset whose name ends with '_all_CVEs_at_midnight.zip', download
-    and extract it, then feed the extraction dir to iter_record_files().
-    """
-    raise NotImplementedError(
-        "baseline-zip acquisition is a documented hook; use shallow_clone()")

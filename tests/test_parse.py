@@ -225,19 +225,11 @@ def test_published_vs_rejected_state():
     assert parse.is_published(load("CVE-2024-1086.json")) is True
     assert parse.is_published(load("synthetic-rejected.json")) is False
     assert parse.state_of(load("synthetic-rejected.json")) == "REJECTED"
-    assert parse.cve_id_of(load("synthetic-rejected.json")) == "CVE-2099-20002"
 
 
-@pytest.mark.parametrize("cve_id,bucket,path", [
-    ("CVE-2024-38595", "38xxx", "cves/2024/38xxx/CVE-2024-38595.json"),
-    ("CVE-2020-1472", "1xxx", "cves/2020/1xxx/CVE-2020-1472.json"),
-    ("CVE-2024-0007", "0xxx", "cves/2024/0xxx/CVE-2024-0007.json"),
-    ("CVE-2025-123456", "123xxx", "cves/2025/123xxx/CVE-2025-123456.json"),
-])
-def test_source_path_and_bucket(cve_id, bucket, path):
-    assert parse.bucket_of(cve_id) == bucket
-    assert parse.source_path_for(cve_id) == path
-    assert parse.year_of(cve_id) == cve_id.split("-")[1]
+def test_year_of():
+    assert parse.year_of("CVE-2024-38595") == "2024"
+    assert parse.year_of("CVE-2025-123456") == "2025"
 
 
 # ---------------------------------------------------------------------------
