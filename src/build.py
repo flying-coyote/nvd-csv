@@ -2,7 +2,7 @@
 
     python -m src.build --mode auto|full|delta [--limit N] [--no-commit]
                         [--max-desc-chars N] [--data-dir data]
-                        [--archive-cutoff-year 2017] [--shard-max-bytes N]
+                        [--band-uppers 2021,2024] [--shard-max-bytes N]
 
 build.py never runs git — the GitHub Actions workflow owns commit/push.
 ``--no-commit`` is accepted (and is the only behavior) so the documented dry-run
@@ -89,45 +89,15 @@ def decide_mode(requested, state, data_dir, oldest):
 
 
 # ---------------------------------------------------------------------------
-# writing a year's rows, splitting if oversized
-# ---------------------------------------------------------------------------
-def _write_year(data_dir, year, rows, cfg, touched):
-    """Write a per-year shard, auto-splitting into buckets if over the cap."""
-    if not rows:
-        return
-    data = shards.serialize(rows)
-    if len(data) > cfg.shard_max_bytes:
-        log(f"  ⚠ cve_{year} would be {len(data):,} bytes (> {cfg.shard_max_bytes:,}); "
-            f"auto-splitting into thousand-buckets")
-        cfg.split_years.add(year)
-        # remove any pre-existing monolith
-        mono = shards.shard_path(data_dir, f"cve_{year}")
-        if os.path.exists(mono):
-            os.remove(mono)
-        for name, brows in shards.split_into_buckets(rows, year).items():
-            shards.write_shard(shards.shard_path(data_dir, name), brows)
-            touched.add(name)
-    else:
-        name = f"cve_{year}"
-        shards.write_shard(shards.shard_path(data_dir, name), rows)
-        touched.add(name)
-
-
-# ---------------------------------------------------------------------------
-# FULL rebuild
+# FULL rebuild — accumulate per age band, flush on band boundary
 # ---------------------------------------------------------------------------
 def run_full(args, cfg, state, kev_index, change_rows):
     data_dir = args.data_dir
-    today = _today()
-    now = _now_iso()
-
-    # clear existing shards so the rebuild is authoritative
     shard_dir = os.path.join(data_dir, "shards")
     if os.path.isdir(shard_dir):
         for f in shards.list_shard_files(data_dir):
             os.remove(f)
     os.makedirs(shard_dir, exist_ok=True)
-    cfg.split_years = set()
 
     created_clone = False
     clone_dir = args.clone_dir
@@ -140,15 +110,26 @@ def run_full(args, cfg, state, kev_index, change_rows):
             sources.shallow_clone(clone_dir)
 
         touched = set()
-        counts = Counter()           # year -> published rows
-        archive_rows = {}
+        counts = Counter()
         processed = 0
         limited = bool(args.limit)
 
-        for year in sources.year_dirs(clone_dir):     # newest-first
-            yi = int(year)
-            year_rows = {}
-            ydir = os.path.join(clone_dir, "cves", year)
+        years = sorted(int(y) for y in sources.year_dirs(clone_dir))  # ascending
+        cur_band = None
+        band_rows: dict = {}
+
+        def flush():
+            if cur_band and band_rows:
+                shards.write_shard(shards.shard_path(data_dir, cur_band), band_rows)
+                touched.add(cur_band)
+
+        for yi in years:
+            band = shards.band_name_for(yi, cfg.band_uppers)
+            if cur_band is not None and band != cur_band:
+                flush()
+                band_rows = {}
+            cur_band = band
+            ydir = os.path.join(clone_dir, "cves", str(yi))
             for root, _d, files in os.walk(ydir):
                 for fn in files:
                     if not (fn.startswith("CVE-") and fn.endswith(".json")):
@@ -157,34 +138,20 @@ def run_full(args, cfg, state, kev_index, change_rows):
                     if not parse.is_published(rec):
                         continue
                     row = parse.record_to_row(rec, kev_index, args.max_desc_chars)
-                    cid = row["cve_id"]
-                    if yi <= cfg.archive_cutoff_year:
-                        archive_rows[cid] = row
-                    else:
-                        year_rows[cid] = row
+                    band_rows[row["cve_id"]] = row
                     counts[yi] += 1
                     processed += 1
                     if limited and processed >= args.limit:
                         break
                 if limited and processed >= args.limit:
                     break
-            if yi > cfg.archive_cutoff_year and year_rows:
-                _write_year(data_dir, yi, year_rows, cfg, touched)
             if limited and processed >= args.limit:
                 break
-
-        if archive_rows:
-            name = cfg.archive_name
-            nbytes = shards.write_shard(shards.shard_path(data_dir, name), archive_rows)
-            touched.add(name)
-            if nbytes > cfg.shard_max_bytes:
-                log(f"  ⚠ {name} is {nbytes:,} bytes (> {cfg.shard_max_bytes:,}); "
-                    f"consider raising ARCHIVE_CUTOFF_YEAR or sub-sharding the archive")
+        flush()
     finally:
         if created_clone and not args.keep_clone:
             shutil.rmtree(clone_dir, ignore_errors=True)
 
-    # change log: full rebuild records a summary, not 300k per-row 'added' lines
     summary = {"mode": "full", "added": processed, "updated": 0, "removed": 0}
     log(f"FULL rebuild: {processed:,} published rows across {len(counts)} years"
         + (" (LIMITED dry run)" if limited else ""))
@@ -258,8 +225,7 @@ def run_delta(args, cfg, state, kev_index, deltalog, session, change_rows):
     kev_changed = {cid for cid in set(prev_kev) | set(kev_index)
                    if prev_kev.get(cid) != kev_index.get(cid)}
     if args.limit:
-        # a limited/dry run must not fan out across the whole KEV delta
-        kev_changed = set()
+        kev_changed = set()  # a limited/dry run must not fan out across all of KEV
     kev_updates = 0
     for cid in kev_changed:
         if cid in processed or not _CVE_RE.match(cid):
@@ -282,23 +248,8 @@ def run_delta(args, cfg, state, kev_index, deltalog, session, change_rows):
     if kev_updates:
         log(f"  KEV-only refresh touched {kev_updates} existing row(s)")
 
-    # write touched shards
     for name in touched:
         shards.write_shard(shards.shard_path(data_dir, name), cache[name])
-
-    # rebalance: split any monolithic per-year shard that crossed the cap
-    for name in list(touched):
-        year = shards.shard_year(name)
-        if year is None or name != f"cve_{year}" or year in cfg.split_years:
-            continue
-        path = shards.shard_path(data_dir, name)
-        if os.path.exists(path) and os.path.getsize(path) > cfg.shard_max_bytes:
-            log(f"  ⚠ {name} crossed {cfg.shard_max_bytes:,} bytes; auto-splitting")
-            rows = shards.read_shard(path)
-            for bname, brows in shards.split_into_buckets(rows, year).items():
-                shards.write_shard(shards.shard_path(data_dir, bname), brows)
-            os.remove(path)
-            cfg.split_years.add(year)
 
     save_kev_snapshot(data_dir, kev_index)
     summary = {"mode": "delta", "added": added, "updated": updated,
@@ -381,16 +332,16 @@ def update_readme_stats(readme_path, total_rows, table):
 
 def print_size_table(total_rows, table, year_counts=None):
     log("")
-    log(f"{'shard':28} {'rows':>9} {'MB':>9}  years")
-    log("-" * 60)
+    log(f"{'shard':24} {'rows':>9} {'MB':>9}  years")
+    log("-" * 56)
     for name, s in sorted(table):
         mb = s["bytes"] / (1024 * 1024)
         span = "—" if s["year_min"] is None else (
             f"{s['year_min']}" if s["year_min"] == s["year_max"]
             else f"{s['year_min']}-{s['year_max']}")
-        log(f"{name:28} {s['rows']:>9,} {mb:>9.2f}  {span}")
-    log("-" * 60)
-    log(f"{'TOTAL':28} {total_rows:>9,}")
+        log(f"{name:24} {s['rows']:>9,} {mb:>9.2f}  {span}")
+    log("-" * 56)
+    log(f"{'TOTAL':24} {total_rows:>9,}")
     if year_counts:
         log("\nper-year published counts (this build):")
         for year, n in sorted(year_counts):
@@ -403,29 +354,23 @@ def finalize(args, cfg, state, mode, summary, newest, kev_date,
     today = _today()
     total_rows, table = collect_shard_stats(data_dir)
 
-    # whole-dataset size guard: warn on ANY shard over the cap every run, in any
-    # mode — covers the archive shard and already-split buckets that a given
-    # delta didn't touch (neither is caught by the per-run rebalance pass).
     for name, s in sorted(table):
         if s["bytes"] > cfg.shard_max_bytes:
             log(f"  ⚠ shard {name} is {s['bytes']:,} bytes (> {cfg.shard_max_bytes:,}); "
-                f"approaching GitHub's 100 MB limit — lower --archive-cutoff-year or "
-                f"--shard-max-bytes, or extend auto-split")
+                f"approaching GitHub's 100 MB limit — lower a --band-uppers boundary "
+                f"to peel the oldest years into their own shard")
 
     changes_path, suppressed = write_changes_csv(
         data_dir, today, change_rows, args.max_change_rows)
     append_changelog(data_dir, today, summary, total_rows, suppressed)
     update_readme_stats(args.readme, total_rows, table)
 
-    # state
     state["schema_version"] = state_mod.SCHEMA_VERSION
     state["last_run_utc"] = _now_iso()
     state["run_mode_last"] = mode
     state["total_rows"] = total_rows
     state["kev_catalog_date"] = kev_date
-    state["split_years"] = sorted(cfg.split_years)
     state["shards"] = {name: s for name, s in table}
-    # advance the cursor only on a complete (non-limited) run
     if not args.limit and newest:
         state["last_processed_fetchTime"] = newest
     elif args.limit:
@@ -437,12 +382,21 @@ def finalize(args, cfg, state, mode, summary, newest, kev_date,
     log(f"\nchange log: {changes_path}"
         + (" (header only — suppressed)" if suppressed else f" ({len(change_rows)} rows)"))
     log(f"state: {state_mod.state_path(data_dir)}")
-    log(f"no git performed (build.py never commits; --no-commit honored).")
+    log("no git performed (build.py never commits; --no-commit honored).")
 
 
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+def _parse_band_uppers(text):
+    out = []
+    for piece in str(text).split(","):
+        piece = piece.strip()
+        if piece:
+            out.append(int(piece))
+    return out or list(shards.DEFAULT_BAND_UPPERS)
+
+
 def build_arg_parser():
     p = argparse.ArgumentParser(prog="src.build",
                                 description="Build/refresh the sharded CVE CSV dataset.")
@@ -453,8 +407,9 @@ def build_arg_parser():
                    help="cap records processed (dry runs); 0 = no cap")
     p.add_argument("--max-desc-chars", type=int, default=0,
                    help="truncate description_en to N chars (0 = no truncation)")
-    p.add_argument("--archive-cutoff-year", type=int,
-                   default=shards.DEFAULT_ARCHIVE_CUTOFF_YEAR)
+    p.add_argument("--band-uppers", default="2021,2024",
+                   help="comma-separated ascending year upper-bounds defining the "
+                        "age-band shards (default 2021,2024 -> 3 shards)")
     p.add_argument("--shard-max-bytes", type=int,
                    default=shards.DEFAULT_SHARD_MAX_BYTES)
     p.add_argument("--max-change-rows", type=int, default=50000,
@@ -476,8 +431,8 @@ def main(argv=None):
     os.makedirs(os.path.join(args.data_dir, "changes"), exist_ok=True)
 
     state = state_mod.load_state(args.data_dir)
-    cfg = ShardConfig(args.archive_cutoff_year, args.shard_max_bytes,
-                      state.get("split_years"))
+    cfg = ShardConfig(band_uppers=_parse_band_uppers(args.band_uppers),
+                      shard_max_bytes=args.shard_max_bytes)
 
     session = sources.make_session()
 
@@ -493,7 +448,7 @@ def main(argv=None):
     log(f"  deltaLog window: {oldest} … {newest} ({len(deltalog)} fetches)")
 
     mode = decide_mode(args.mode, state, args.data_dir, oldest)
-    log(f"mode = {mode} (requested {args.mode})")
+    log(f"mode = {mode} (requested {args.mode}); bands = {cfg.band_uppers}")
 
     change_rows = []
     if mode == "full":

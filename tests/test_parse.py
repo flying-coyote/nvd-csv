@@ -28,9 +28,9 @@ def row(name, **kw):
 # ---------------------------------------------------------------------------
 # schema shape
 # ---------------------------------------------------------------------------
-def test_columns_are_18_unique():
-    assert len(parse.COLUMNS) == 18
-    assert len(set(parse.COLUMNS)) == 18
+def test_columns_are_19_unique():
+    assert len(parse.COLUMNS) == 19
+    assert len(set(parse.COLUMNS)) == 19
 
 
 def test_row_has_exactly_the_columns_and_all_strings():
@@ -140,6 +140,27 @@ def test_multi_vendor_distinct_flattening_synthetic():
     r = row("synthetic-precedence.json")
     assert r["vendors"] == "Acme | Globex"        # Acme appears twice -> deduped
     assert r["products"] == "Widget | Gadget"     # Widget appears twice -> deduped
+
+
+def test_cpes_collected_from_affected_and_cpeapplicability():
+    # synthetic: 1.0 from CNA affected[].cpes, 2.0 from CISA-ADP cpeApplicability
+    r = row("synthetic-precedence.json")
+    assert r["cpes"] == ("cpe:2.3:a:acme:widget:1.0:*:*:*:*:*:*:* | "
+                         "cpe:2.3:a:acme:widget:2.0:*:*:*:*:*:*:*")
+
+
+def test_cpes_capped_at_50_with_marker():
+    rec = {
+        "cveMetadata": {"cveId": "CVE-2099-30003", "state": "PUBLISHED"},
+        "containers": {"cna": {"affected": [{
+            "vendor": "V", "product": "P",
+            "cpes": [f"cpe:2.3:a:v:p:{i}.0:*:*:*:*:*:*:*" for i in range(55)],
+        }]}},
+    }
+    r = parse.record_to_row(rec)
+    parts = r["cpes"].split(" | ")
+    assert len(parts) == 51
+    assert parts[-1] == "…(+5)"
 
 
 # ---------------------------------------------------------------------------

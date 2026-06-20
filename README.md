@@ -10,8 +10,8 @@ Daily updates are incremental, driven by the upstream `cves/deltaLog.json`, and
 fall back to a full rebuild automatically when the incremental window can't be
 trusted (see [Incremental logic](#incremental-logic-and-the-staleness-guard)).
 
-- **Data lives in** [`data/shards/`](data/shards) — `cve_archive_le2017.csv`,
-  `cve_2018.csv`, … one file per recent year.
+- **Data lives in** [`data/shards/`](data/shards) — three age-band files
+  (`cve_2021_and_before.csv`, `cve_2022_to_2024.csv`, `cve_2025_and_after.csv`).
 - **Run state** is [`data/state.json`](data/state.json); per-run change logs are
   in [`data/changes/`](data/changes).
 - **Scope:** PUBLISHED only. REJECTED and RESERVED records are excluded, and a
@@ -39,7 +39,7 @@ trusted (see [Incremental logic](#incremental-logic-and-the-staleness-guard)).
 
 ## Schema
 
-Exactly one row per CVE, 18 columns, in this order. Multi-valued fields are
+Exactly one row per CVE, 19 columns, in this order. Multi-valued fields are
 flattened into one cell with ` | ` as the delimiter, de-duplicated and
 order-stable; all internal newlines and tabs are collapsed to single spaces.
 Files are UTF-8, `QUOTE_MINIMAL`, with `\n` line endings.
@@ -64,6 +64,7 @@ Files are UTF-8, `QUOTE_MINIMAL`, with `\n` line endings.
 | 16 | `ssvc_technical_impact` | CISA-ADP SSVC `Technical Impact` |
 | 17 | `vendors` | distinct vendors from the CNA `affected[]`, `|`-joined |
 | 18 | `products` | distinct products from the CNA `affected[]`, `|`-joined |
+| 19 | `cpes` | distinct CPE 2.3 criteria (from `affected[].cpes` and `cpeApplicability`), capped at 50 with a trailing `…(+N)` |
 
 ### CVSS precedence and CWE aggregation
 
@@ -72,9 +73,8 @@ CISA-ADP. Within the chosen container, take the highest version
 (`v4.0 > v3.1 > v3.0 > v2.0`); `cvss_source` records which container won. A
 record may carry no CVSS at all (common for Linux-kernel CVEs); those fields are
 left empty rather than invented. In practice CISA-ADP only backfills a CVSS when
-the CNA omitted one, so the two rarely conflict. The qualitative severity band is
-omitted because it's derivable from `cvss_base_score`. `cwe_ids_all` collects
-every distinct CWE id found in any container (CNA + ADP).
+the CNA omitted one, so the two rarely conflict. `cwe_ids_all` collects every
+distinct CWE id found in any container (CNA + ADP).
 
 ### KEV is authoritative from the CISA feed
 
@@ -84,43 +84,63 @@ fetched once per run and matched by CVE ID — more reliable than scraping KEV o
 of the ADP container. Because KEV is fetched every run, a CVE's KEV status stays
 current even on a day its own record didn't change.
 
-### What's deliberately not a column
+### Schema design decisions
 
-The schema is intentionally lean. Dropped as constant, derivable, or
-low-value-per-byte: `state` (always PUBLISHED), `year` / `source_path`
-(derivable from `cve_id`), `assigner_org_id`, `data_version`, `has_cisa_adp`,
-`record_dateUpdated_hash`, `date_reserved`, `cvss_base_severity` (derivable from
-the score), the primary `cwe_id`/`cwe_name`/`cwe_source` (superseded by
-`cwe_ids_all`), `kev_known_ransomware`, `affected_count`, `cpes`,
-`reference_count`, and `reference_urls`. Never stored at all: per-version ranges,
-git commit hashes, and `programFiles` (Linux-kernel CVEs carry dozens of version
-ranges and enumerating them would explode the row). Only English descriptions are
-kept; full kernel descriptions (which embed stack traces) drive file size, so
-`--max-desc-chars` can truncate them.
+The schema is intentionally lean: a column earns its place only if it isn't
+constant, isn't derivable from another column, and carries analyst value worth
+its bytes. What was dropped, and why:
+
+- `state` — always `PUBLISHED` given the scope (zero information).
+- `year`, `source_path` — fully derivable from `cve_id`.
+- `assigner_org_id` — a 36-char UUID that duplicates `assigner_short_name`.
+- `data_version`, `has_cisa_adp`, `record_dateUpdated_hash` — schema/plumbing
+  metadata, not analyst-facing.
+- `date_reserved` — the static date a CNA reserved the ID; no analytic value.
+- `cvss_base_severity` — derivable from `cvss_base_score` (standard CVSS bands).
+- `cwe_id`, `cwe_name` — derivable from `cwe_ids_all` (the first id) plus a
+  CWE-id→name lookup; `cwe_source` is barely useful and usually tracks
+  `cvss_source`.
+- `kev_known_ransomware`, `affected_count`, `reference_count` — marginal value;
+  dropped for leanness (each was a tiny fraction of the bytes anyway).
+- `reference_urls` — the single fattest, lowest-value column (up to 50 links in
+  one cell); `cve_id` reconstructs the link to the full record.
+
+`cpes` was **kept** after measuring it: at ~5% of the dataset it's the only
+machine-matchable identifier (CPE 2.3, with versions) for correlating CVEs
+against asset inventories, scanners, or NVD configurations. It is *not*
+derivable from the other columns — only 14% of CVEs carry a CPE, 45% have a
+vendor/product but no CPE, and the CPE vendor equals the assigner only ~55% of
+the time — so it adds coverage rather than duplicating `vendors`/`products`.
+
+Never stored at all: per-version ranges, git commit hashes, and `programFiles`
+(Linux-kernel CVEs carry dozens of version ranges and enumerating them would
+explode the row). Only English descriptions are kept; full kernel descriptions
+(which embed stack traces) drive file size, so `--max-desc-chars` can truncate.
 
 ## Sharding strategy
 
-Most records and nearly all daily churn are in recent years; old years are large
-in span but small and static. So shards are by age, not strict calendar:
+Shards are coarse age bands — a small, fixed set of multi-year files — to keep
+the shard count low. The default `--band-uppers 2021,2024` produces three:
 
-- one **archive** shard for all years `<= ARCHIVE_CUTOFF_YEAR` (default **2017**):
-  `data/shards/cve_archive_le2017.csv`
-- one shard **per year** after that: `cve_2018.csv` … `cve_<currentYear>.csv`
+| shard | years |
+| --- | --- |
+| `cve_2021_and_before.csv` | ≤ 2021 |
+| `cve_2022_to_2024.csv` | 2022–2024 |
+| `cve_2025_and_after.csv` | ≥ 2025 |
 
-This keeps every committed file well under GitHub's 100 MB limit and keeps each
-daily commit small — only the shards that actually changed are rewritten. Shards
-are written with rows sorted by `(year, sequence)`, so the same set of rows always
-produces identical bytes (the backbone of the idempotency guarantee).
+Each is sized to sit under GitHub's 100 MB per-file limit with headroom (~50–72
+MB today). The trade for so few shards is larger files: a daily delta re-writes
+a whole band even for a handful of changed rows — but git delta-compresses the
+mostly-unchanged text, so repo history still grows slowly. Shards are written
+with rows sorted by `(year, sequence)`, so the same set of rows always produces
+identical bytes (the backbone of the idempotency guarantee).
 
-**Self-tuning safety:** every run records each shard's row count and byte size
-into `state.json` and the stats block above, and warns loudly about any shard over
-`SHARD_MAX_BYTES` (default **90 MB**). A per-year shard that would exceed the cap
-is auto-split into CVE-ID thousand buckets (`cve_2025_0xxx.csv`,
-`cve_2025_1xxx.csv`, …) and the year is recorded in `state.json["split_years"]`.
-The cutoff and threshold are CLI-tunable in one place (`--archive-cutoff-year`,
-`--shard-max-bytes`). The archive shard is the one the splitter can't break up; if
-it ever nears 90 MB, **lower** `--archive-cutoff-year` so the oldest years move
-into their own shards (see the stats block above for current sizes).
+There is no auto-split. Every run records each shard's row count and byte size
+into `state.json` and the stats block above, and **warns loudly** if any shard
+exceeds `--shard-max-bytes` (default 90 MB). The recent band fills over roughly
+two years; when it approaches the cap, **lower a `--band-uppers` boundary** to
+peel the oldest years into their own shard (the boundaries are the one tuning
+knob, changeable on any run).
 
 ## Incremental logic and the staleness guard
 
@@ -135,22 +155,23 @@ deltaLog `fetchTime` already incorporated). Each run:
    us → possible gap). Otherwise **DELTA**. `--mode auto|full|delta` overrides.
 2. **DELTA:** union every `new[]`+`updated[]` entry newer than the cursor, fetch
    just those raw records concurrently (≤12 workers, retry + backoff), upsert by
-   `cve_id` into the right shard, delete any that are no longer PUBLISHED, refresh
-   KEV-only changes onto existing rows, then advance the cursor to the newest
-   `fetchTime`.
+   `cve_id` into the right band shard, delete any that are no longer PUBLISHED,
+   refresh KEV-only changes onto existing rows, then advance the cursor.
 3. **FULL:** acquire the whole dataset (shallow `git clone --depth 1`), rebuild
-   every shard from scratch, then advance the cursor.
+   every shard from scratch (accumulating per band, flushing at band boundaries
+   to bound memory), then advance the cursor.
 4. Write outputs, update `state.json`, write the daily change log, regenerate the
    stats block, and (in CI) commit only if something changed.
 
 **Idempotency:** upserts are keyed solely on `cve_id`, and shard bytes are
-deterministic, so re-running a delta changes nothing.
+deterministic, so re-running a delta changes nothing. (A schema or band change
+needs a `--mode full` run, since a delta can't reshape existing shards.)
 
 ## Repo layout
 
 ```
 src/        build.py (CLI/orchestration) · parse.py (record→row) · shards.py
-            (naming/IO/split) · sources.py (deltaLog/raw/KEV/clone) · state.py
+            (band naming/IO) · sources.py (deltaLog/raw/KEV/clone) · state.py
 tests/      fixtures/ (real + synthetic CVE records) · test_parse · test_shards · test_build
 data/       shards/ · changes/ · state.json · kev_snapshot.json  (generated, committed)
 .github/workflows/daily-update.yml
@@ -160,11 +181,14 @@ data/       shards/ · changes/ · state.json · kev_snapshot.json  (generated, 
 
 ```bash
 pip install -r requirements.txt          # runtime: requests only
-# dry run on a subset (clones upstream, builds the 2000 newest, commits nothing):
+# dry run on a subset (clones upstream, builds a sample, commits nothing):
 python -m src.build --mode full --limit 2000 --no-commit
 
 # real full build into a scratch dir (does not touch the committed data/):
 python -m src.build --mode full --data-dir /tmp/full-data --readme /tmp/r.md
+
+# re-tune the bands (e.g. four shards):
+python -m src.build --mode full --band-uppers 2018,2021,2024 --data-dir /tmp/d
 
 # tests (dev deps add pytest + pandas for the CSV round-trip parity check):
 pip install -r requirements-dev.txt && python -m pytest -q
