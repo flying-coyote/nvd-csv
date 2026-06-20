@@ -1,0 +1,80 @@
+{
+  "dataType": "CVE_RECORD",
+  "dataVersion": "5.1",
+  "cveMetadata": {
+    "cveId": "CVE-2099-10001",
+    "assignerOrgId": "00000000-0000-0000-0000-000000000001",
+    "assignerShortName": "synthetic-cna",
+    "state": "PUBLISHED",
+    "dateReserved": "2099-01-01T00:00:00.000Z",
+    "datePublished": "2099-02-01T00:00:00.000Z",
+    "dateUpdated": "2099-03-01T00:00:00.000Z"
+  },
+  "containers": {
+    "cna": {
+      "providerMetadata": { "orgId": "00000000-0000-0000-0000-000000000001", "shortName": "synthetic-cna" },
+      "title": "Synthetic precedence record",
+      "descriptions": [
+        { "lang": "en", "value": "Line one,\nwith a comma and a \"quote\" and\ta tab." },
+        { "lang": "es", "value": "Texto en espanol que no debe aparecer." }
+      ],
+      "metrics": [
+        { "cvssV3_1": { "version": "3.1", "baseScore": 5.0, "baseSeverity": "MEDIUM", "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N" } },
+        { "cvssV4_0": { "version": "4.0", "baseScore": 6.9, "baseSeverity": "MEDIUM", "vectorString": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N" } }
+      ],
+      "problemTypes": [
+        { "descriptions": [
+          { "lang": "en", "type": "CWE", "cweId": "CWE-79", "description": "CWE-79 Cross-site Scripting" },
+          { "lang": "en", "type": "CWE", "cweId": "CWE-89", "description": "CWE-89 SQL Injection" }
+        ] }
+      ],
+      "affected": [
+        { "vendor": "Acme", "product": "Widget", "cpes": [
+            "cpe:2.3:a:acme:widget:1.0:*:*:*:*:*:*:*",
+            "cpe:2.3:a:acme:widget:1.0:*:*:*:*:*:*:*"
+          ], "versions": [ { "version": "1.0", "status": "affected" } ] },
+        { "vendor": "Acme", "product": "Gadget", "versions": [ { "version": "2.0", "status": "affected" } ] },
+        { "vendor": "Globex", "product": "Widget", "versions": [ { "version": "3.0", "status": "affected" } ] }
+      ],
+      "references": [
+        { "url": "https://example.com/a" },
+        { "url": "https://example.com/b" },
+        { "url": "https://example.com/a" }
+      ]
+    },
+    "adp": [
+      {
+        "providerMetadata": { "orgId": "00000000-0000-0000-0000-0000000000cc", "shortName": "CVE", "dateUpdated": "2099-03-01T00:00:00.000Z" },
+        "title": "CVE Program Container",
+        "references": [
+          { "url": "https://example.com/a", "tags": ["x_transferred"] },
+          { "url": "https://example.com/b", "tags": ["x_transferred"] },
+          { "url": "https://example.com/c", "tags": ["x_transferred"] }
+        ]
+      },
+      {
+        "providerMetadata": { "orgId": "00000000-0000-0000-0000-0000000000ad", "shortName": "CISA-ADP", "dateUpdated": "2099-03-01T00:00:00.000Z" },
+        "title": "CISA ADP Vulnrichment",
+        "metrics": [
+          { "cvssV3_1": { "version": "3.1", "baseScore": 9.9, "baseSeverity": "CRITICAL", "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H" } },
+          { "other": { "type": "ssvc", "content": { "options": [
+              { "Exploitation": "poc" },
+              { "Automatable": "yes" },
+              { "Technical Impact": "total" }
+            ], "role": "CISA Coordinator", "version": "2.0.3" } } }
+        ],
+        "problemTypes": [
+          { "descriptions": [ { "lang": "en", "type": "CWE", "cweId": "CWE-200", "description": "CWE-200 Exposure of Sensitive Information" } ] }
+        ],
+        "cpeApplicability": [
+          { "nodes": [ { "operator": "OR", "negate": false, "cpeMatch": [
+            { "vulnerable": true, "criteria": "cpe:2.3:a:acme:widget:2.0:*:*:*:*:*:*:*" }
+          ] } ] }
+        ],
+        "references": [
+          { "url": "https://kev.example/cisa-only" }
+        ]
+      }
+    ]
+  }
+}

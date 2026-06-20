@@ -1,0 +1,3 @@
+# Runtime dependency for the build (HTTP with retries). Everything else is stdlib.
+# pandas is NOT a runtime requirement (memory at ~300k rows) — it is dev-only.
+requests>=2.31
