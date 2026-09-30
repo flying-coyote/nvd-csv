@@ -111,3 +111,4 @@ One line per run: date · mode · added / updated / removed · total.
 - 2026-09-27 · **delta** · +227 / ~100 / -0 · 380,071 total rows
 - 2026-09-28 · **delta** · +227 / ~221 / -0 · 380,298 total rows
 - 2026-09-29 · **delta** · +355 / ~318 / -5 · 380,648 total rows
+- 2026-09-30 · **delta** · +700 / ~1863 / -1 · 381,347 total rows
