@@ -1,29 +1,29 @@
 {
-  "kev_catalog_date": "2026-11-04T20:00:05.774Z",
-  "last_processed_fetchTime": "2026-11-06T14:40:59.456Z",
-  "last_run_utc": "2026-11-06T14:46:06+00:00",
+  "kev_catalog_date": "2026-11-06T19:44:45.1797Z",
+  "last_processed_fetchTime": "2026-11-07T13:22:16.396Z",
+  "last_run_utc": "2026-11-07T13:43:29+00:00",
   "run_mode_last": "delta",
   "schema_version": 1,
   "shards": {
     "cve_2022_and_before": {
-      "bytes": 84171628,
-      "rows": 203726,
+      "bytes": 84172198,
+      "rows": 203728,
       "year_max": 2022,
       "year_min": 1999
     },
     "cve_2023_to_2025": {
-      "bytes": 75355836,
-      "rows": 112853,
+      "bytes": 75356394,
+      "rows": 112855,
       "year_max": 2025,
       "year_min": 2023
     },
     "cve_2026_to_now": {
-      "bytes": 68417698,
-      "rows": 84537,
+      "bytes": 68916110,
+      "rows": 85182,
       "year_max": 2026,
       "year_min": 2026
     }
   },
   "split_years": [],
-  "total_rows": 401116
+  "total_rows": 401765
 }
