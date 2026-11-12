@@ -67,13 +67,13 @@ bodies score and classify it. You'll see all of these in the columns:
 ## Dataset statistics
 
 <!-- STATS:START -->
-**Total rows:** 404,990  ·  **Shards:** 3  ·  generated 2026-11-11T14:53:47+00:00
+**Total rows:** 405,587  ·  **Shards:** 3  ·  generated 2026-11-12T15:44:35+00:00
 
 | shard | rows | size | years |
 | --- | ---: | ---: | :---: |
 | `cve_2022_and_before` | 203,728 | 80.27 MB | 1999–2022 |
-| `cve_2023_to_2025` | 112,881 | 71.89 MB | 2023–2025 |
-| `cve_2026_to_now` | 88,381 | 68.46 MB | 2026 |
+| `cve_2023_to_2025` | 112,882 | 71.89 MB | 2023–2025 |
+| `cve_2026_to_now` | 88,977 | 69.00 MB | 2026 |
 <!-- STATS:END -->
 
 ## What's in each row
