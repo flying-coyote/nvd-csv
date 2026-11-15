@@ -4,7 +4,9 @@
                         [--max-desc-chars N] [--data-dir data]
                         [--band-uppers 2021,2024] [--shard-max-bytes N]
 
-build.py never runs git — the GitHub Actions workflow owns commit/push.
+build.py never runs git or touches GitHub Releases — the Actions workflow owns
+commit/push and uploads the shard CSVs to the rolling ``latest`` release; only
+state.json (the SHA-256 manifest), the change files and the README are committed.
 ``--no-commit`` is accepted (and is the only behavior) so the documented dry-run
 invocation works verbatim.
 """
@@ -28,6 +30,19 @@ CHANGE_COLUMNS = ["cve_id", "change_type", "date_updated", "shard", "run_utc"]
 README_START = "<!-- STATS:START -->"
 README_END = "<!-- STATS:END -->"
 _CVE_RE = re.compile(r"^CVE-\d{4}-\d+$")
+DEFAULT_REPO = "flying-coyote/nvd-csv"
+RELEASE_TAG = "latest"
+
+
+def release_base(repo=None):
+    """Stable download base for the rolling release, in tag form.
+
+    ``releases/download/<tag>/`` pins the tag named ``latest``; the other form,
+    ``releases/latest/download/``, follows GitHub's "Latest release" flag and
+    would drift to whichever release was most recently marked latest.
+    """
+    repo = repo or os.environ.get("GITHUB_REPOSITORY") or DEFAULT_REPO
+    return f"https://github.com/{repo}/releases/download/{RELEASE_TAG}/"
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +89,12 @@ def shards_present(data_dir):
 
 
 def decide_mode(requested, state, data_dir, oldest):
+    if requested == "delta" and not shards_present(data_dir):
+        # Shards come from the `latest` release and src.verify deletes them on a
+        # manifest mismatch; a delta on an empty base would publish a dataset
+        # holding only today's changes, so an explicit delta degrades to full.
+        log("requested delta but no shards on disk -> full rebuild instead")
+        return "full"
     if requested in ("full", "delta"):
         return requested
     if not shards_present(data_dir):
@@ -300,24 +321,30 @@ def collect_shard_stats(data_dir):
     return rows_total, table
 
 
-def render_stats_md(total_rows, table):
+def render_stats_md(total_rows, table, base=None):
+    base = base or release_base()
     lines = [
         f"**Total rows:** {total_rows:,}  ·  **Shards:** {len(table)}  "
         f"·  generated {_now_iso()}",
         "",
-        "| shard | rows | size | years |",
-        "| --- | ---: | ---: | :---: |",
+        "| shard | rows | size | years | sha256 |",
+        "| --- | ---: | ---: | :---: | --- |",
     ]
     for name, s in sorted(table):
         mb = s["bytes"] / (1024 * 1024)
         span = (f"{s['year_min']}" if s["year_min"] == s["year_max"]
                 else f"{s['year_min']}–{s['year_max']}") if s["year_min"] else "—"
-        lines.append(f"| `{name}` | {s['rows']:,} | {mb:.2f} MB | {span} |")
+        sha = s.get("sha256") or ""
+        lines.append(f"| [`{name}.csv`]({base}{name}.csv) | {s['rows']:,} | "
+                     f"{mb:.2f} MB | {span} | `{sha}` |")
+    lines += ["", f"Full hashes: [`SHA256SUMS`]({base}SHA256SUMS) "
+                  "(also `data/state.json` → `shards.<name>.sha256`)."]
     return "\n".join(lines)
 
 
-def update_readme_stats(readme_path, total_rows, table):
-    block = f"{README_START}\n{render_stats_md(total_rows, table)}\n{README_END}"
+def update_readme_stats(readme_path, total_rows, table, base=None):
+    block = (f"{README_START}\n{render_stats_md(total_rows, table, base)}"
+             f"\n{README_END}")
     if not os.path.exists(readme_path):
         return
     text = open(readme_path, encoding="utf-8").read()
@@ -363,7 +390,7 @@ def finalize(args, cfg, state, mode, summary, newest, kev_date,
     changes_path, suppressed = write_changes_csv(
         data_dir, today, change_rows, args.max_change_rows)
     append_changelog(data_dir, today, summary, total_rows, suppressed)
-    update_readme_stats(args.readme, total_rows, table)
+    update_readme_stats(args.readme, total_rows, table, release_base(args.repo))
 
     state["schema_version"] = state_mod.SCHEMA_VERSION
     state["last_run_utc"] = _now_iso()
@@ -420,6 +447,9 @@ def build_arg_parser():
     p.add_argument("--keep-clone", action="store_true")
     p.add_argument("--no-commit", action="store_true",
                    help="accepted for the documented dry run; build never commits")
+    p.add_argument("--repo", default=None,
+                   help="owner/name for README download links (default: "
+                        "$GITHUB_REPOSITORY, else flying-coyote/nvd-csv)")
     p.add_argument("--no-kev", action="store_true",
                    help="skip the KEV fetch (offline/testing)")
     return p

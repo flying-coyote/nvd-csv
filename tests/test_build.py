@@ -162,3 +162,6 @@ def test_decide_mode_staleness_guard(tmp_path):
     assert build.decide_mode("full", {"last_processed_fetchTime": "2026-03-01"},
                              data, "2026-02-01") == "full"
     assert build.decide_mode("delta", {}, data, "2026-02-01") == "delta"
+    # ...except delta with no base shards (e.g. verify deleted them) -> full
+    os.remove(os.path.join(data, "shards", "cve_2024.csv"))
+    assert build.decide_mode("delta", {}, data, "2026-02-01") == "full"

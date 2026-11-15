@@ -9,8 +9,14 @@ Shape (schema_version 1):
       "run_mode_last": "full" | "delta",
       "total_rows": 0,
       "kev_catalog_date": "...",
-      "shards": { "<name>": {"rows": N, "bytes": N, "year_min": Y, "year_max": Y} }
+      "shards": { "<name>": {"rows": N, "bytes": N, "year_min": Y, "year_max": Y,
+                             "sha256": "<hex>"} }
     }
+
+state.json is committed; the shard CSVs are not (they live on the ``latest``
+GitHub Release). The per-shard ``sha256`` is the manifest the workflow checks a
+restored shard against before running a delta build, and what downstream users
+can verify a download against.
 """
 
 from __future__ import annotations

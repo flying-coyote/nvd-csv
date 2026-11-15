@@ -11,6 +11,10 @@ venv/
 clone/
 *.local
 
-# NOTE: data/ is intentionally NOT ignored — the generated CSV dataset,
-# data/state.json, data/kev_snapshot.json and data/changes/ ARE the deliverable
-# and are committed by the daily workflow.
+# Generated shard CSVs are published as assets on the rolling `latest` GitHub
+# Release, not committed (2026-11-15: committing ~220 MB a day grew the pack to
+# 1.4 GiB). data/state.json (with the per-shard SHA-256 manifest),
+# data/kev_snapshot.json and data/changes/ are still committed by the workflow.
+# NOTE: ignoring does not untrack the files already in the index; that takes a
+# one-time `git rm --cached data/shards/*.csv`.
+/data/shards/

@@ -1,5 +1,12 @@
 name: Daily CVE refresh
 
+# Flow (since 2026-11-15): restore yesterday's shards from the rolling `latest`
+# release -> verify them against the SHA-256 manifest in data/state.json ->
+# build (delta or full) -> upload the shards to `latest` (--clobber) -> commit
+# only data/changes/, data/state.json, data/kev_snapshot.json and README.md ->
+# cut a dated `data-YYYY-MM` release if this month doesn't have one yet.
+# The shard CSVs are no longer committed, so they stop accumulating in git history.
+
 on:
   schedule:
     # 07:00 UTC — comfortably after the upstream midnight-UTC baseline release.
@@ -13,19 +20,23 @@ on:
         default: auto
 
 permissions:
-  contents: write
+  contents: write   # push the small daily commit + create/upload release assets
 
 # Never let two refreshes run at once; queue, don't cancel a run mid-commit.
 concurrency:
   group: cve-refresh
   cancel-in-progress: false
 
+env:
+  ROLLING_TAG: latest
+  SHARD_DIR: data/shards
+
 jobs:
   refresh:
     runs-on: ubuntu-latest
     timeout-minutes: 180   # generous: a FULL rebuild clones + reparses every record
     steps:
-      - name: Checkout (this repo, incl. committed data)
+      - name: Checkout (this repo, incl. committed state + change files)
         uses: actions/checkout@v4
 
       - name: Set up Python 3.11
@@ -37,20 +48,58 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Restore previous shards from the rolling release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$SHARD_DIR"
+          if gh release view "$ROLLING_TAG" >/dev/null 2>&1; then
+            # Non-fatal: a release with no matching assets (e.g. a first upload
+            # that failed) must not wedge every later run; src.verify decides.
+            gh release download "$ROLLING_TAG" --pattern 'cve_*.csv' \
+              --dir "$SHARD_DIR" --clobber \
+              || echo "Download from '$ROLLING_TAG' failed or matched nothing; verify will decide."
+          else
+            echo "No '$ROLLING_TAG' release yet; using whatever shards the checkout has."
+          fi
+          # On any mismatch with data/state.json this deletes the shards, so
+          # --mode auto falls back to a full rebuild instead of a delta on a bad base.
+          python -m src.verify --data-dir data
+
       - name: Build / refresh dataset
         env:
           MODE: ${{ github.event.inputs.mode || 'auto' }}
         run: python -m src.build --mode "$MODE"
+
+      - name: Upload shards to the rolling release
+        # Only the default branch publishes; a dispatch from a feature branch
+        # must not overwrite the assets everyone downloads.
+        if: github.event_name == 'schedule' || github.ref_name == github.event.repository.default_branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ( cd "$SHARD_DIR" && sha256sum cve_*.csv > SHA256SUMS )
+          if ! gh release view "$ROLLING_TAG" >/dev/null 2>&1; then
+            gh release create "$ROLLING_TAG" --target "$GITHUB_SHA" --latest \
+              --title "Latest daily build" \
+              --notes "Rolling release: assets are replaced every day by the Daily CVE refresh workflow."
+          fi
+          gh release upload "$ROLLING_TAG" "$SHARD_DIR"/cve_*.csv "$SHARD_DIR/SHA256SUMS" --clobber
+          gh release edit "$ROLLING_TAG" \
+            --notes "Rolling release, replaced daily. Last build: $(date -u +%FT%TZ). Verify downloads with SHA256SUMS."
 
       - name: Commit & push if anything changed
         env:
           MODE: ${{ github.event.inputs.mode || 'auto' }}
           REF_NAME: ${{ github.ref_name }}
         run: |
-          if [ -n "$(git status --porcelain data/ README.md)" ]; then
+          # Explicit paths: the shard CSVs are published as release assets and
+          # are never committed (see .gitignore).
+          PATHS="data/changes data/state.json data/kev_snapshot.json README.md"
+          if [ -n "$(git status --porcelain -- $PATHS)" ]; then
             git config user.name  "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add data/ README.md
+            git add -- $PATHS
             git commit -m "chore: daily CVE refresh $(date -u +%F) [$MODE]"
             # serialize-safe: concurrency guards overlap, but rebase on remote just in
             # case. A failed rebase must abort the step (errexit) — never push stale data.
@@ -58,4 +107,21 @@ jobs:
             git push
           else
             echo "No changes to commit."
+          fi
+
+      - name: Cut this month's dated release if missing
+        # Monthly snapshot for reproducibility. "Create if missing" instead of
+        # "on the 1st" so a skipped or failed run on the 1st self-heals the next day.
+        if: github.event_name == 'schedule' || github.ref_name == github.event.repository.default_branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="data-$(date -u +%Y-%m)"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "$TAG already exists."
+          else
+            gh release create "$TAG" --target "$(git rev-parse HEAD)" --latest=false \
+              --title "CVE dataset snapshot $(date -u +%F)" \
+              --notes "Monthly snapshot of the CVE CSV shards as built on $(date -u +%F). Never overwritten by the workflow; for the current data use the 'latest' release." \
+              "$SHARD_DIR"/cve_*.csv "$SHARD_DIR/SHA256SUMS"
           fi

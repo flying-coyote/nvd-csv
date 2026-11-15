@@ -7,6 +7,10 @@ sized to stay under GitHub's per-file limit, e.g. with band uppers [2022, 2025]:
     cve_2023_to_2025.csv      (2023..2025)
     cve_2026_to_now.csv       (>= 2026)
 
+The shards are published as assets on the rolling ``latest`` GitHub Release
+(see .github/workflows/daily-update.yml), not committed to git; the 100 MB band
+sizing is kept so existing consumers' file names don't change.
+
 Bands keep the shard count low at the cost of larger files; there is no
 auto-split. build.py warns loudly if any shard exceeds ``shard_max_bytes`` so
 the band uppers can be re-tuned (lower a boundary to peel the oldest years off).
@@ -20,6 +24,7 @@ from __future__ import annotations
 
 import csv
 import glob
+import hashlib
 import io
 import os
 import sys
@@ -140,6 +145,15 @@ def remove(rows_by_id: dict, cve_id: str) -> bool:
 # ---------------------------------------------------------------------------
 # stats
 # ---------------------------------------------------------------------------
+def sha256_of(path: str) -> str:
+    """Hex SHA-256 of a file's bytes (what consumers check after download)."""
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def stats_from_file(path: str) -> dict:
     """Cheap on-disk stats without holding all rows: stream the file once."""
     rows = 0
@@ -155,4 +169,6 @@ def stats_from_file(path: str) -> dict:
                     continue  # malformed id: count the row, skip the year math
                 ymin = y if ymin is None else min(ymin, y)
                 ymax = y if ymax is None else max(ymax, y)
-    return {"rows": rows, "bytes": nbytes, "year_min": ymin, "year_max": ymax}
+    sha = sha256_of(path) if os.path.exists(path) else None
+    return {"rows": rows, "bytes": nbytes, "year_min": ymin, "year_max": ymax,
+            "sha256": sha}

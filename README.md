@@ -64,6 +64,41 @@ bodies score and classify it. You'll see all of these in the columns:
   back-fills the CVSS, CWE, CPE, and SSVC. Where a value came from the CNA versus
   this enrichment is recorded in `cvss_source` (`cna` or `cisa-adp`).
 
+## Getting the data
+
+The three CSVs are published every day as assets on this repo's rolling
+[`latest` release](https://github.com/flying-coyote/nvd-csv/releases/tag/latest),
+at URLs that don't change:
+
+- `https://github.com/flying-coyote/nvd-csv/releases/download/latest/cve_2022_and_before.csv`
+- `https://github.com/flying-coyote/nvd-csv/releases/download/latest/cve_2023_to_2025.csv`
+- `https://github.com/flying-coyote/nvd-csv/releases/download/latest/cve_2026_to_now.csv`
+- `https://github.com/flying-coyote/nvd-csv/releases/download/latest/SHA256SUMS` (hashes to check a download against)
+
+Download one with `curl -LO https://github.com/flying-coyote/nvd-csv/releases/download/latest/cve_2026_to_now.csv`, or query
+it in place with DuckDB, which fetches over HTTPS on its own:
+`SELECT count(*) FROM read_csv('https://github.com/flying-coyote/nvd-csv/releases/download/latest/cve_2026_to_now.csv');`
+
+For reproducible work, pin a monthly snapshot instead: each month gets an
+`data-YYYY-MM` release, which the workflow never overwrites, (for example `data-2026-12`) holding that day's
+shards and `SHA256SUMS`, listed on the
+[releases page](https://github.com/flying-coyote/nvd-csv/releases). The
+per-shard hashes for the current build are also in the table below and in
+`data/state.json`.
+
+> **Migration note (2026-11-15).** The shard CSVs used to be committed under
+> `data/shards/` and served from `raw.githubusercontent.com`. They're now
+> release assets only, because committing ~220 MB every day had grown the
+> repository to a 1.4 GiB clone. The last commit with the CSVs in `data/shards/`
+> stays in history, but those files stop updating as of this change. If you read
+> `raw.githubusercontent.com/.../data/shards/*.csv`, a cloned `data/shards/`
+> directory, or the old Power Query script, switch to the URLs above (the
+> [Excel script](excel/merge-shards.pq) is already updated). The daily
+> `data/changes/` files, `data/state.json` and the change log are still in git
+> as before. One side effect for clones: the `git pull` that brings in this
+> change deletes your local `data/shards/` copies, so download from the release
+> first if you rely on them.
+
 ## Dataset statistics
 
 <!-- STATS:START -->
@@ -159,17 +194,21 @@ of the 340k) and high-signal — a good first filter.
 
 ## How to use it
 
-Clone the repo (or download the three CSVs) and point any tool at
-`data/shards/*.csv`. They share the same columns, so reading all three together
-gives you the full dataset.
+Download the three CSVs (see [Getting the data](#getting-the-data)) or read
+them straight from the release URLs. They share the same columns, so reading all
+three together gives you the full dataset.
 
 **[DuckDB](https://duckdb.org)** is the easiest because it reads the CSVs
-directly and globs all three at once:
+directly, local or over HTTPS. It can't glob a web URL, so list the three files:
 
 ```sql
 -- Every actively-exploited, critical-severity CVE from 2024, newest first
 SELECT cve_id, cvss_base_score, products, description_en
-FROM 'data/shards/*.csv'
+FROM read_csv([
+  'https://github.com/flying-coyote/nvd-csv/releases/download/latest/cve_2022_and_before.csv',
+  'https://github.com/flying-coyote/nvd-csv/releases/download/latest/cve_2023_to_2025.csv',
+  'https://github.com/flying-coyote/nvd-csv/releases/download/latest/cve_2026_to_now.csv'
+])
 WHERE cisa_kev = '1'
   AND TRY_CAST(cvss_base_score AS DOUBLE) >= 9.0
   AND date_published >= '2024-01-01'
@@ -179,8 +218,10 @@ ORDER BY date_published DESC;
 **pandas:**
 
 ```python
-import glob, pandas as pd
-df = pd.concat(pd.read_csv(f, dtype=str) for f in glob.glob("data/shards/*.csv"))
+import pandas as pd
+BASE = "https://github.com/flying-coyote/nvd-csv/releases/download/latest/"
+SHARDS = ["cve_2022_and_before.csv", "cve_2023_to_2025.csv", "cve_2026_to_now.csv"]
+df = pd.concat(pd.read_csv(BASE + f, dtype=str) for f in SHARDS)
 
 # all use-after-free bugs (CWE-416) in the Linux kernel
 kernel_uaf = df[df["cwe_ids_all"].str.contains("CWE-416", na=False)
@@ -199,7 +240,7 @@ and by whom (`cvss_base_score` + `cvss_source`). For Excel, see the next section
 ## Live data in Excel (Power Query)
 
 [`excel/merge-shards.pq`](excel/merge-shards.pq) is a Power Query (M) script that
-pulls the three shards straight from this repo and stacks them into one table you
+pulls the three shards from the `latest` release and stacks them into one table you
 can refresh on demand. On Windows Excel:
 
 1. **Data → Get Data → From Other Sources → Blank Query**
@@ -215,8 +256,9 @@ can refresh on demand. On Windows Excel:
 
 A GitHub Actions workflow runs every day at 07:00 UTC. Most days it only fetches
 the handful of records that changed upstream (it follows the CVE Program's own
-`deltaLog.json` change feed) and commits a small update; the daily diff in
-`data/changes/` tells you exactly which CVEs were added, updated, or removed. The
+`deltaLog.json` change feed), replaces the CSVs on the `latest` release, and
+commits only a small update (the change list, the README table and
+`data/state.json`); the daily diff in `data/changes/` tells you exactly which CVEs were added, updated, or removed. The
 KEV list is re-checked every run, so a CVE's `cisa_kev` flag flips from `0` to
 `1` the day CISA adds it, even if the vulnerability record itself didn't change.
 If the change feed ever rolls past where we left off, the build rebuilds the
@@ -244,8 +286,10 @@ glance. If you need more, the full record is always one click away at
 ## How the files are organized
 
 The data is split into three CSVs by age (`cve_2022_and_before`,
-`cve_2023_to_2025`, `cve_2026_to_now`) only because GitHub caps a single file
-at 100 MB and the full dataset is ~180 MB. There's nothing clever to it — read
+`cve_2023_to_2025`, `cve_2026_to_now`) only because GitHub caps a file in a git
+repository at 100 MB and the full dataset is ~220 MB. Release assets don't have
+that cap, but the three-file split is kept so existing scripts and file names
+keep working. There's nothing clever to it — read
 all three and you have everything. The split points are tunable
 (`--band-uppers`) if you rebuild it yourself, and the build warns if any file
 creeps toward the cap.
@@ -275,7 +319,10 @@ python -m src.build --mode full --limit 2000 --no-commit   # quick dry run
 pip install -r requirements-dev.txt && python -m pytest -q # the test suite
 ```
 
-The daily refresh is `.github/workflows/daily-update.yml`. To force a full
+The daily refresh is `.github/workflows/daily-update.yml`. It restores the
+previous shards from the `latest` release, checks them against the SHA-256s in
+`data/state.json` (any mismatch triggers a full rebuild), builds, uploads the new
+shards, and commits the small files. To force a full
 rebuild from scratch: **Actions → Daily CVE refresh → Run workflow → mode =
 full**. The build uses only the Python standard library plus `requests`; pandas
 is only needed for the tests.
