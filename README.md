@@ -3,7 +3,7 @@
 Every publicly known software vulnerability gets a **CVE** ID (Common
 Vulnerabilities and Exposures, the industry's universal name for a specific
 flaw, like `CVE-2021-44228` for Log4Shell). The official record for each one is
-published as JSON, and there are roughly **340,000** of them. This repo turns
+published as JSON, and there are more than **400,000** of them (the table below gives today's exact count). This repo turns
 that pile into a handful of plain CSV files — one row per CVE — and refreshes
 them every day so you can open the whole history of disclosed vulnerabilities in
 Excel, pandas, or DuckDB without writing a single API call.
@@ -18,7 +18,7 @@ just want to look around:
 
 - The CVE Program publishes every record as an individual JSON file in one giant
   git repository, [CVEProject/cvelistV5](https://github.com/CVEProject/cvelistV5).
-  Cloning it is several gigabytes and ~360,000 files, and each file follows the
+  Cloning it is several gigabytes and hundreds of thousands of files, and each file follows the
   nested [CVE JSON 5.x schema](https://github.com/CVEProject/cve-schema) where
   the interesting fields (severity, weakness, affected products) live in
   different places depending on who filled them in.
