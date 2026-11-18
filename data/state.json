@@ -1,32 +1,32 @@
 {
-  "kev_catalog_date": "2026-11-13T20:24:18.3008Z",
-  "last_processed_fetchTime": "2026-11-17T16:32:24.766Z",
-  "last_run_utc": "2026-11-17T16:38:20+00:00",
+  "kev_catalog_date": "2026-11-17T17:53:15.5664Z",
+  "last_processed_fetchTime": "2026-11-18T16:02:48.196Z",
+  "last_run_utc": "2026-11-18T16:07:26+00:00",
   "run_mode_last": "delta",
   "schema_version": 1,
   "shards": {
     "cve_2022_and_before": {
-      "bytes": 84173623,
-      "rows": 203730,
-      "sha256": "68bdc58c320b02de16a9db4ac7796f959a31fcef479894b55fe60b4fdf76ca2c",
+      "bytes": 84194677,
+      "rows": 203759,
+      "sha256": "ec312cd5d83eebe8d1cfa750bc9767a362eeadd9e6593170fac756357d070b71",
       "year_max": 2022,
       "year_min": 1999
     },
     "cve_2023_to_2025": {
-      "bytes": 75411120,
-      "rows": 112916,
-      "sha256": "3ce8e65a503818f73a8de6753f07960b6fd61d08401c368fcd3aa82b698470f2",
+      "bytes": 75421396,
+      "rows": 112930,
+      "sha256": "1b6c7bf02eecfda6c4ccd9cd52bd65d7c7606cbaa5525aa8453efb7c505a55c2",
       "year_max": 2025,
       "year_min": 2023
     },
     "cve_2026_to_now": {
-      "bytes": 73665085,
-      "rows": 90637,
-      "sha256": "2ecb0504bc957e41be47260abb232e4dbdbae3c6ad8531ca32c6860e955bfa9c",
+      "bytes": 74780816,
+      "rows": 92060,
+      "sha256": "4346a115196fd0b1e1b7c17aa8e8745e351c003f2ab64f064681b4fe5f419cff",
       "year_max": 2026,
       "year_min": 2026
     }
   },
   "split_years": [],
-  "total_rows": 407283
+  "total_rows": 408749
 }
