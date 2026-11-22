@@ -1,7 +1,7 @@
 {
   "kev_catalog_date": "2026-11-20T17:48:39.1516Z",
-  "last_processed_fetchTime": "2026-11-21T14:54:57.360Z",
-  "last_run_utc": "2026-11-21T15:02:44+00:00",
+  "last_processed_fetchTime": "2026-11-22T14:37:26.064Z",
+  "last_run_utc": "2026-11-22T14:59:56+00:00",
   "run_mode_last": "delta",
   "schema_version": 1,
   "shards": {
@@ -13,20 +13,20 @@
       "year_min": 1999
     },
     "cve_2023_to_2025": {
-      "bytes": 75425536,
+      "bytes": 75425568,
       "rows": 112936,
-      "sha256": "16570a725f7c4bf2666d9706ff81145f37f7b44c613967dfaeb60db6d1cbd8c1",
+      "sha256": "7fe73eaaf23b117421c2c91f8bc94c831385aa3bf0c0c9cd322580f1bcef7808",
       "year_max": 2025,
       "year_min": 2023
     },
     "cve_2026_to_now": {
-      "bytes": 76784376,
-      "rows": 94269,
-      "sha256": "bbdcd842f8c81f2b1ff51747907d6408f09f1400e28301fe88ae8fea137e815c",
+      "bytes": 76996794,
+      "rows": 94577,
+      "sha256": "2acc367a05cc6f448d402129b26dd8b157a631eaa12e7023d5d91aa2555cfeef",
       "year_max": 2026,
       "year_min": 2026
     }
   },
   "split_years": [],
-  "total_rows": 410965
+  "total_rows": 411273
 }

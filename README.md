@@ -102,13 +102,13 @@ per-shard hashes for the current build are also in the table below and in
 ## Dataset statistics
 
 <!-- STATS:START -->
-**Total rows:** 410,965  ·  **Shards:** 3  ·  generated 2026-11-21T15:02:44+00:00
+**Total rows:** 411,273  ·  **Shards:** 3  ·  generated 2026-11-22T14:59:56+00:00
 
 | shard | rows | size | years | sha256 |
 | --- | ---: | ---: | :---: | --- |
 | [`cve_2022_and_before.csv`](https://github.com/flying-coyote/nvd-csv/releases/download/latest/cve_2022_and_before.csv) | 203,760 | 80.30 MB | 1999–2022 | `6d28c465450e80f6cd7311e5430402591df950d652ef9334163aaa03322c68ce` |
-| [`cve_2023_to_2025.csv`](https://github.com/flying-coyote/nvd-csv/releases/download/latest/cve_2023_to_2025.csv) | 112,936 | 71.93 MB | 2023–2025 | `16570a725f7c4bf2666d9706ff81145f37f7b44c613967dfaeb60db6d1cbd8c1` |
-| [`cve_2026_to_now.csv`](https://github.com/flying-coyote/nvd-csv/releases/download/latest/cve_2026_to_now.csv) | 94,269 | 73.23 MB | 2026 | `bbdcd842f8c81f2b1ff51747907d6408f09f1400e28301fe88ae8fea137e815c` |
+| [`cve_2023_to_2025.csv`](https://github.com/flying-coyote/nvd-csv/releases/download/latest/cve_2023_to_2025.csv) | 112,936 | 71.93 MB | 2023–2025 | `7fe73eaaf23b117421c2c91f8bc94c831385aa3bf0c0c9cd322580f1bcef7808` |
+| [`cve_2026_to_now.csv`](https://github.com/flying-coyote/nvd-csv/releases/download/latest/cve_2026_to_now.csv) | 94,577 | 73.43 MB | 2026 | `2acc367a05cc6f448d402129b26dd8b157a631eaa12e7023d5d91aa2555cfeef` |
 
 Full hashes: [`SHA256SUMS`](https://github.com/flying-coyote/nvd-csv/releases/download/latest/SHA256SUMS) (also `data/state.json` → `shards.<name>.sha256`).
 <!-- STATS:END -->
